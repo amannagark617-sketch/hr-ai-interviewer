@@ -1,0 +1,37 @@
+:root {
+  --bg: #FAF8F3;
+  --surface: #FFFFFF;
+  --ink: #211F1C;
+  --muted: #6B6558;
+  --faint: #948D7D;
+  --border: #E4DFD3;
+  --border-soft: #F0ECE1;
+  --accent: #2B4C3F;
+  --accent-soft: #E7EEE9;
+  --amber: #8A6417;
+  --amber-soft: #F5EEDD;
+  --rust: #9A4331;
+  --rust-soft: #F4E4DE;
+  --call: #EAA24A;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.serif { font-family: "Source Serif 4", serif; }
+
+button { font-family: inherit; }
+
+textarea:focus, input:focus, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }

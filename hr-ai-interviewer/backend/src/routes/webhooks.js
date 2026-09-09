@@ -10,7 +10,10 @@ export const webhooksRouter = Router();
 webhooksRouter.post("/answer", (req, res) => {
   const callId = req.query.callId;
   const call = store.getCall(callId);
-  if (!call) return res.status(404).send("Unknown call");
+  if (!call) {
+    console.error(`[webhooks/answer] Unknown callId=${JSON.stringify(callId)} — candidate picked up but we have no record of this call.`);
+    return res.status(404).send("Unknown call");
+  }
 
   store.updateCall(callId, {
     status: "in-progress",
@@ -18,6 +21,10 @@ webhooksRouter.post("/answer", (req, res) => {
   });
 
   const wsUrl = `${config.publicBaseUrl.replace(/^http/, "ws")}/ws/media`;
+  console.log(`[webhooks/answer] Call ${callId} answered (CallUUID=${req.body.CallUUID}), pointing Stream at ${wsUrl}`);
+  if (!config.publicBaseUrl) {
+    console.error(`[webhooks/answer] PUBLIC_BASE_URL is not set — the Stream URL above is malformed and Plivo cannot connect to it.`);
+  }
   res.type("text/xml").send(buildAnswerXml({ callId, wsUrl }));
 });
 

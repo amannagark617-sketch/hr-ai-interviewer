@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { nanoid } from "nanoid";
 import { store } from "../data/store.js";
-import { extractResumeText, guessNameFromFilename } from "../services/resumeParser.js";
+import { extractResumeText, extractCandidateDetails } from "../services/resumeParser.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 export const candidatesRouter = Router();
@@ -68,16 +68,18 @@ candidatesRouter.post("/upload", upload.array("resumes", 50), async (req, res) =
   for (const file of files) {
     try {
       const text = await extractResumeText(file.buffer, file.originalname);
+      const details = extractCandidateDetails(text, file.originalname);
       const candidate = store.addCandidate({
         id: nanoid(),
-        name: guessNameFromFilename(file.originalname),
-        phone: "",
+        name: details.name,
+        phone: details.phone,
         resumeText: text,
         status: "pending",
         score: null,
         verdict: null,
         pros: [],
         cons: [],
+        errorMessage: null,
         selected: false,
       });
       results.push({ file: file.originalname, ok: true, candidate });

@@ -3,12 +3,6 @@ import { config } from "../config.js";
 
 const client = new GoogleGenerativeAI(config.gemini.apiKey);
 
-// Gemini model names get retired and replaced fairly often — gemini-2.0-flash (and the
-// gemini-2.5-flash it aliased to) is no longer available to new API keys as of this writing.
-// If scoring starts failing with a 404 "model ... is no longer available" error, the error
-// message itself names the current replacement — swap it in here.
-const TEXT_MODEL = "gemini-3.6-flash";
-
 function parseJsonResponse(text) {
   const cleaned = text.replace(/```json|```/g, "").trim();
   try {
@@ -18,12 +12,30 @@ function parseJsonResponse(text) {
   }
 }
 
+// 503 (model overloaded) and 429 (rate limited) are both conditions Google's own error text
+// describes as temporary — retry a couple of times with backoff before giving up, instead of
+// failing the candidate on the first busy moment.
+const RETRYABLE_STATUSES = new Set([429, 503]);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function generateWithRetry(model, prompt, attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await model.generateContent(prompt);
+    } catch (err) {
+      const retryable = RETRYABLE_STATUSES.has(err?.status);
+      if (!retryable || attempt === attempts) throw err;
+      await sleep(1000 * 2 ** (attempt - 1)); // 1s, 2s, ...
+    }
+  }
+}
+
 /**
  * Scores a single resume against a job description.
  * Returns { score, verdict, pros, cons }.
  */
 export async function scoreResume(jobDescription, resumeText, candidateName) {
-  const model = client.getGenerativeModel({ model: TEXT_MODEL });
+  const model = client.getGenerativeModel({ model: config.gemini.textModel });
 
   const prompt = `You are an expert technical recruiter screening a resume against a single job description.
 Respond with ONLY a JSON object — no markdown fences, no preamble.
@@ -44,7 +56,7 @@ ${jobDescription}
 Resume (${candidateName}):
 ${resumeText}`;
 
-  const result = await model.generateContent(prompt);
+  const result = await generateWithRetry(model, prompt);
   const text = result.response.text();
   return parseJsonResponse(text);
 }
@@ -55,7 +67,7 @@ ${resumeText}`;
  * recommendation is one of "advance" | "hold" | "reject".
  */
 export async function scoreInterviewTranscript(jobDescription, transcript, candidateName) {
-  const model = client.getGenerativeModel({ model: TEXT_MODEL });
+  const model = client.getGenerativeModel({ model: config.gemini.textModel });
 
   const prompt = `You are an experienced interviewer reviewing a first-round phone screen transcript.
 Respond with ONLY a JSON object — no markdown fences, no preamble.
@@ -77,7 +89,7 @@ ${jobDescription}
 Interview transcript (${candidateName}):
 ${transcript}`;
 
-  const result = await model.generateContent(prompt);
+  const result = await generateWithRetry(model, prompt);
   const text = result.response.text();
   return parseJsonResponse(text);
 }

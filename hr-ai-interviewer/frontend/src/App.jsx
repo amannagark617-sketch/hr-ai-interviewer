@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { api } from "./api.js";
 import Setup from "./pages/Setup.jsx";
 import Results from "./pages/Results.jsx";
+import Calls from "./pages/Calls.jsx";
 
 const iconBtnStyle = {
   display: "flex",
@@ -17,8 +18,19 @@ const iconBtnStyle = {
   fontSize: 16,
 };
 
+const tabStyle = (active) => ({
+  padding: "6px 14px",
+  fontSize: 13.5,
+  fontWeight: 500,
+  borderRadius: 7,
+  border: "none",
+  cursor: "pointer",
+  background: active ? "var(--accent-soft)" : "transparent",
+  color: active ? "var(--accent)" : "var(--muted)",
+});
+
 export default function App() {
-  const [step, setStep] = useState("setup"); // "setup" | "results"
+  const [step, setStep] = useState("setup"); // "setup" | "results" | "calls"
   const [jd, setJd] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [rankError, setRankError] = useState("");
@@ -61,7 +73,7 @@ export default function App() {
     <div style={{ minHeight: "100vh" }}>
       <header style={{ borderBottom: "1px solid var(--border)", padding: "20px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {step === "results" && (
+          {step !== "setup" && (
             <button onClick={() => setStep("setup")} aria-label="Back to setup" style={iconBtnStyle}>
               ←
             </button>
@@ -71,11 +83,13 @@ export default function App() {
             <div style={{ fontSize: 13, color: "var(--muted)" }}>Rank resumes against a role, then decide who to call.</div>
           </div>
         </div>
-        {step === "results" && (
-          <div style={{ fontSize: 13, color: "var(--muted)" }}>
-            {candidates.length} candidate{candidates.length !== 1 ? "s" : ""}
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button style={tabStyle(step === "setup")} onClick={() => setStep("setup")}>Setup</button>
+          <button style={tabStyle(step === "results")} onClick={() => setStep("results")} disabled={candidates.length === 0}>
+            Rank &amp; select
+          </button>
+          <button style={tabStyle(step === "calls")} onClick={() => setStep("calls")}>Calls</button>
+        </div>
       </header>
 
       {rankError && (
@@ -84,11 +98,13 @@ export default function App() {
         </div>
       )}
 
-      {step === "setup" ? (
+      {step === "setup" && (
         <Setup jd={jd} setJd={setJd} candidates={candidates} refreshCandidates={refreshCandidates} onRank={onRank} />
-      ) : (
-        <Results candidates={candidates} refreshCandidates={refreshCandidates} />
       )}
+      {step === "results" && (
+        <Results candidates={candidates} refreshCandidates={refreshCandidates} onCallsTriggered={() => setStep("calls")} />
+      )}
+      {step === "calls" && <Calls />}
     </div>
   );
 }

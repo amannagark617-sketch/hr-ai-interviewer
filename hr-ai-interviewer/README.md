@@ -8,7 +8,7 @@ An internal tool for HR teams to:
 4. Automatically place AI-conducted phone interviews over Plivo, with Gemini Live driving the conversation
 5. Log everything — recording link, transcript, scores, next-round decision — to a Google Sheet
 
-This repo is a working scaffold, not a finished product. Resume ranking and the web dashboard are fully implemented. The calling pipeline (Plivo ⇄ Gemini Live bridge) is implemented against the documented APIs but **has not been tested against live Plivo/Gemini credentials** — budget time to debug the real-time audio path before trusting it with real candidates.
+This repo is a working scaffold, not a finished product. Resume ranking and the web dashboard (setup, ranking/selection, and a live Calls status view) are fully implemented. The calling pipeline (Plivo ⇄ Gemini Live bridge) is implemented against the documented APIs, using Gemini's native-audio Live model so the agent sounds like a real person rather than a robotic TTS voice — but it **has not been tested against live Plivo/Gemini credentials**. Budget time for one real test call to debug the real-time audio path before trusting it with real candidates.
 
 ## Project layout
 
@@ -65,10 +65,10 @@ and set `PUBLIC_BASE_URL` in `backend/.env` to the `https://...ngrok...` URL it 
 |---|---|
 | Resume upload (.pdf/.docx/.txt) + parsing | Working |
 | Gemini resume ranking (score, verdict, pros/cons) | Working |
-| HR dashboard (rank, review, select) | Working |
-| Candidate selection → call trigger | Working (queues jobs) |
+| HR dashboard (setup, rank & select, live Calls status) | Working |
+| Candidate selection → one-click call trigger | Working (queues jobs, jumps to the Calls tab) |
 | Plivo outbound call + Answer XML | Working, needs your Plivo credentials to test |
-| Plivo Audio Streaming ⇄ Gemini Live bridge | Implemented per docs, **untested against live traffic** — this is the part to validate first |
+| Plivo Audio Streaming ⇄ Gemini Live bridge (native-audio voice, per-candidate resume context) | Implemented per docs, **untested against live traffic** — this is the part to validate first |
 | Post-call transcript scoring | Working once a transcript exists |
 | Google Sheets logging | Working, needs the Apps Script deployed (see `docs/apps-script/Code.gs`) |
 

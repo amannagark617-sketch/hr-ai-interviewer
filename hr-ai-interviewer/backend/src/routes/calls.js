@@ -1,16 +1,27 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
+import { assertConfigured } from "../config.js";
 import { store } from "../data/store.js";
 import { placeCall } from "../services/plivoService.js";
 
 export const callsRouter = Router();
 
 callsRouter.get("/", (req, res) => {
-  res.json({ calls: store.listCalls() });
+  const calls = store.listCalls().map((call) => ({
+    ...call,
+    candidate: store.getCandidate(call.candidateId) || null,
+  }));
+  res.json({ calls });
 });
 
 // Triggers first-round calls for the given candidate IDs. Candidates must have a phone number.
 callsRouter.post("/trigger", async (req, res) => {
+  try {
+    assertConfigured(["gemini.apiKey", "plivo.authId", "plivo.authToken", "plivo.fromNumber", "publicBaseUrl"]);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
   const { candidateIds } = req.body;
   if (!Array.isArray(candidateIds) || candidateIds.length === 0) {
     return res.status(400).json({ error: "candidateIds must be a non-empty array" });

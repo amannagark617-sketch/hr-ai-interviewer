@@ -11,6 +11,8 @@ export const config = {
 
   gemini: {
     apiKey: required("GEMINI_API_KEY", ""),
+    // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
+    voiceName: required("GEMINI_VOICE_NAME", "Aoede"),
   },
 
   plivo: {

@@ -41,11 +41,16 @@ export function buildAnswerXml({ callId, wsUrl }) {
 
 /**
  * Fetches a call's recording URL after it has ended. Plivo needs a moment after
- * hangup before the recording is available — call this from the hangup webhook
- * with a short delay/retry if it comes back empty.
+ * hangup before the recording is processed and listed, so this retries a few
+ * times with a short delay instead of giving up on the first empty result.
  */
-export async function getRecordingUrl(plivoCallUuid) {
-  const recordings = await client.recordings.list({ callUuid: plivoCallUuid });
-  if (!recordings || recordings.length === 0) return null;
-  return recordings[0].recordingUrl;
+export async function getRecordingUrl(plivoCallUuid, { retries = 4, delayMs = 3000 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const recordings = await client.recordings.list({ call_uuid: plivoCallUuid });
+    if (recordings && recordings.length > 0) {
+      return recordings[0].recordingUrl || recordings[0].recording_url || null;
+    }
+    if (attempt < retries) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
 }

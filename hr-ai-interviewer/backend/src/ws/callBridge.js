@@ -161,12 +161,17 @@ export function attachCallBridge(httpServer) {
         const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
         if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
           const rateMatch = audioPart.inlineData.mimeType.match(/rate=(\d+)/);
-          const sampleRate = rateMatch ? Number(rateMatch[1]) : 24000;
+          const sampleRate = rateMatch ? rateMatch[1] : "24000";
+          // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
+          // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
+          // contentType attribute, not here — and sampleRate is a string, not a number. Sending
+          // either wrong shape risks Plivo silently dropping every frame: the candidate hears
+          // nothing even though the call stays connected and Gemini is generating audio fine.
           plivoSocket.send(
             JSON.stringify({
               event: "playAudio",
               media: {
-                contentType: `audio/x-l16;rate=${sampleRate}`,
+                contentType: "audio/x-l16",
                 sampleRate,
                 payload: audioPart.inlineData.data,
               },
@@ -212,10 +217,15 @@ export function attachCallBridge(httpServer) {
       }
 
       if (frame.event === "media" && geminiSocket.readyState === WebSocket.OPEN) {
+        // realtimeInput.mediaChunks (an array) is deprecated — confirmed via a real call, where
+        // Gemini closed the socket (code 1007) within 14ms of setup completing, citing exactly
+        // this: "realtime_input.media_chunks is deprecated. Use audio, video, or text instead."
+        // That killed the session before the agent could say a word. `audio` takes a single
+        // chunk directly instead of an array.
         geminiSocket.send(
           JSON.stringify({
             realtimeInput: {
-              mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: frame.media.payload }],
+              audio: { mimeType: "audio/pcm;rate=16000", data: frame.media.payload },
             },
           })
         );

@@ -22,12 +22,6 @@ import { store } from "../data/store.js";
 const GEMINI_LIVE_URL =
   `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.gemini.apiKey}`;
 
-// gemini-3.1-flash-live-preview is the current Live API model as of this writing (it superseded
-// gemini-2.5-flash-native-audio-preview-*, which itself superseded the now-retired
-// gemini-2.0-flash-live-001). Live API model names change fairly often — if setup fails with a
-// "model not found" error, check https://ai.google.dev/gemini-api/docs/live-api for the current name.
-const GEMINI_LIVE_MODEL = "models/gemini-3.1-flash-live-preview";
-
 function buildAgentSystemPrompt({ jobDescription, candidateName, resumeText }) {
   return `You are Maya, a warm, sharp recruiter doing a quick first-round phone screen. You are on a live
 phone call right now — talk like a real person on the phone, never like you're reading a script or
@@ -62,14 +56,15 @@ What we know about this candidate from their resume:
 ${(resumeText || "No resume on file.").slice(0, 4000)}`;
 }
 
-function openGeminiLiveSession(jobDescription, candidate) {
+function openGeminiLiveSession(jobDescription, candidate, callId) {
   const ws = new WebSocket(GEMINI_LIVE_URL);
 
   ws.on("open", () => {
+    console.log(`[callBridge] Gemini Live socket open for call ${callId}, sending setup (model=${config.gemini.liveModel})`);
     ws.send(
       JSON.stringify({
         setup: {
-          model: GEMINI_LIVE_MODEL,
+          model: config.gemini.liveModel,
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
@@ -108,60 +103,100 @@ export function attachCallBridge(httpServer) {
     const call = callId && store.getCall(callId);
 
     if (!call) {
+      // Every prior silent failure in this app (ranking, scoring) turned out to be a swallowed
+      // error with no trace anywhere — log everything needed to diagnose this one instead of
+      // repeating that. If this fires on a real call, the call IDs won't match at all (a fresh
+      // deploy/restart wiped the in-memory store between placing the call and Plivo connecting,
+      // or multiple server instances don't share memory) — both are real possibilities worth
+      // ruling out from these logs rather than guessing.
+      console.error(
+        `[callBridge] Rejecting WS connection: no call found for callId=${JSON.stringify(callId)}. ` +
+          `Known call IDs right now: ${JSON.stringify(store.listCalls().map((c) => c.id))}`
+      );
       plivoSocket.close(1008, "Unknown call");
       return;
     }
 
+    console.log(`[callBridge] Plivo media stream connected for call ${callId}`);
+
     const candidate = store.getCandidate(call.candidateId);
     const jobDescription = store.getJobDescription();
-    const geminiSocket = openGeminiLiveSession(jobDescription, candidate);
+    const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId);
     let transcript = "";
+    let setupComplete = false;
 
     geminiSocket.on("message", (raw) => {
       let msg;
       try {
         msg = JSON.parse(raw.toString());
-      } catch {
+      } catch (err) {
+        console.error(`[callBridge] Non-JSON message from Gemini for call ${callId}:`, err.message);
         return;
       }
 
-      // Model was interrupted (candidate started talking over it) — Gemini stops generating on
-      // its own, but Plivo may still be playing out audio frames we already sent. There's no
-      // documented "clear the playback queue" event for Plivo streams, so the best we can do here
-      // is stop forwarding further audio for this turn; verify against a live test call whether
-      // any perceptible overlap remains.
-      if (msg?.serverContent?.interrupted) return;
+      try {
+        // Gemini Live reports a rejected setup (bad model name, invalid key, quota, etc.) as a
+        // normal JSON message with an "error" field, not a socket-level error — miss this and
+        // the call just goes dead silent with zero indication why.
+        if (msg?.error) {
+          console.error(`[callBridge] Gemini Live setup/session error for call ${callId}:`, JSON.stringify(msg.error));
+          return;
+        }
 
-      // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
-      // is 24kHz, not the 16kHz we send it — read the real rate out of the mimeType instead of
-      // assuming, or Plivo will play it back at the wrong speed/pitch.
-      const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
-      if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
-        const rateMatch = audioPart.inlineData.mimeType.match(/rate=(\d+)/);
-        const sampleRate = rateMatch ? Number(rateMatch[1]) : 24000;
-        plivoSocket.send(
-          JSON.stringify({
-            event: "playAudio",
-            media: {
-              contentType: `audio/x-l16;rate=${sampleRate}`,
-              sampleRate,
-              payload: audioPart.inlineData.data,
-            },
-          })
-        );
+        if (msg?.setupComplete && !setupComplete) {
+          setupComplete = true;
+          console.log(`[callBridge] Gemini Live setup complete for call ${callId} — agent is live`);
+        }
+
+        // Model was interrupted (candidate started talking over it) — Gemini stops generating on
+        // its own, but Plivo may still be playing out audio frames we already sent. There's no
+        // documented "clear the playback queue" event for Plivo streams, so the best we can do here
+        // is stop forwarding further audio for this turn; verify against a live test call whether
+        // any perceptible overlap remains.
+        if (msg?.serverContent?.interrupted) return;
+
+        // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
+        // is 24kHz, not the 16kHz we send it — read the real rate out of the mimeType instead of
+        // assuming, or Plivo will play it back at the wrong speed/pitch.
+        const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
+        if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
+          const rateMatch = audioPart.inlineData.mimeType.match(/rate=(\d+)/);
+          const sampleRate = rateMatch ? Number(rateMatch[1]) : 24000;
+          plivoSocket.send(
+            JSON.stringify({
+              event: "playAudio",
+              media: {
+                contentType: `audio/x-l16;rate=${sampleRate}`,
+                sampleRate,
+                payload: audioPart.inlineData.data,
+              },
+            })
+          );
+        }
+
+        // Transcription text, surfaced because inputAudioTranscription/outputAudioTranscription are
+        // enabled in the setup message above — accumulate for post-call scoring and the Sheets log.
+        const outputTranscription = msg?.serverContent?.outputTranscription?.text;
+        if (outputTranscription) transcript += `Agent: ${outputTranscription}\n`;
+
+        const inputTranscription = msg?.serverContent?.inputTranscription?.text;
+        if (inputTranscription) transcript += `Candidate: ${inputTranscription}\n`;
+      } catch (err) {
+        console.error(`[callBridge] Error handling Gemini message for call ${callId}:`, err);
       }
-
-      // Transcription text, surfaced because inputAudioTranscription/outputAudioTranscription are
-      // enabled in the setup message above — accumulate for post-call scoring and the Sheets log.
-      const outputTranscription = msg?.serverContent?.outputTranscription?.text;
-      if (outputTranscription) transcript += `Agent: ${outputTranscription}\n`;
-
-      const inputTranscription = msg?.serverContent?.inputTranscription?.text;
-      if (inputTranscription) transcript += `Candidate: ${inputTranscription}\n`;
     });
 
     geminiSocket.on("error", (err) => {
       console.error(`[callBridge] Gemini socket error for call ${callId}:`, err.message);
+    });
+
+    geminiSocket.on("close", (code, reason) => {
+      console.log(`[callBridge] Gemini socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"}`);
+      if (!setupComplete) {
+        console.error(
+          `[callBridge] Gemini Live socket closed for call ${callId} before setup completed — the agent never came on the line.`
+        );
+      }
     });
 
     plivoSocket.on("message", (raw) => {
@@ -170,6 +205,10 @@ export function attachCallBridge(httpServer) {
         frame = JSON.parse(raw.toString());
       } catch {
         return;
+      }
+
+      if (frame.event === "start") {
+        console.log(`[callBridge] Plivo stream started for call ${callId}`);
       }
 
       if (frame.event === "media" && geminiSocket.readyState === WebSocket.OPEN) {
@@ -183,12 +222,18 @@ export function attachCallBridge(httpServer) {
       }
 
       if (frame.event === "stop") {
+        console.log(`[callBridge] Plivo stream stopped for call ${callId}`);
         store.updateCall(callId, { transcript });
         geminiSocket.close();
       }
     });
 
-    plivoSocket.on("close", () => {
+    plivoSocket.on("error", (err) => {
+      console.error(`[callBridge] Plivo socket error for call ${callId}:`, err.message);
+    });
+
+    plivoSocket.on("close", (code, reason) => {
+      console.log(`[callBridge] Plivo socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"}`);
       store.updateCall(callId, { transcript });
       if (geminiSocket.readyState === WebSocket.OPEN) geminiSocket.close();
     });

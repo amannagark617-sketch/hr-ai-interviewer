@@ -14,6 +14,9 @@ export const config = {
     // Google retires/renames Gemini model IDs fairly often. Overridable so a model swap is an
     // env var change (redeploy, no code edit) instead of a full fix-and-push cycle.
     textModel: process.env.GEMINI_TEXT_MODEL || "gemini-3.6-flash",
+    // Same deal for the Live API (phone call) model — separate lineage/rotation schedule from
+    // the text model above, so it gets its own override.
+    liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-3.1-flash-live-preview",
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
   },

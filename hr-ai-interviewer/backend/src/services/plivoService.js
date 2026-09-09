@@ -33,7 +33,7 @@ export function buildAnswerXml({ callId, wsUrl }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record startOnDialAnswer="true" redirect="false" fileFormat="mp3"/>
-  <Stream bidirectional="true" audioTrack="both" streamTimeout="1800" contentType="audio/x-l16;rate=16000">
+  <Stream bidirectional="true" keepCallAlive="true" audioTrack="both" streamTimeout="1800" contentType="audio/x-l16;rate=16000">
     ${wsUrl}?callId=${encodeURIComponent(callId)}
   </Stream>
 </Response>`;

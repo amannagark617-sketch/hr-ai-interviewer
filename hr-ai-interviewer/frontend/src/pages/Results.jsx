@@ -78,7 +78,11 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
                       Scoring against job description...
                     </div>
                   )}
-                  {c.status === "error" && <div style={{ fontSize: 13, color: "var(--rust)" }}>Couldn't score this one — try ranking again.</div>}
+                  {c.status === "error" && (
+                    <div style={{ fontSize: 13, color: "var(--rust)" }}>
+                      Couldn't score this one{c.errorMessage ? `: ${c.errorMessage}` : " — try ranking again."}
+                    </div>
+                  )}
                   {c.status === "done" && <div style={{ fontSize: 13, color: "var(--muted)" }}>{c.verdict}</div>}
                 </div>
                 {tier && (

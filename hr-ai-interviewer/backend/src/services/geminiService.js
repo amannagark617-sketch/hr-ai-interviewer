@@ -5,7 +5,11 @@ const client = new GoogleGenerativeAI(config.gemini.apiKey);
 
 function parseJsonResponse(text) {
   const cleaned = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    throw new Error(`Gemini didn't return valid JSON: ${cleaned.slice(0, 200)}`);
+  }
 }
 
 /**

@@ -21,11 +21,20 @@ webhooksRouter.post("/answer", (req, res) => {
   });
 
   const wsUrl = `${config.publicBaseUrl.replace(/^http/, "ws")}/ws/media`;
+  const statusCallbackUrl = `${config.publicBaseUrl}/api/webhooks/stream-status?callId=${encodeURIComponent(callId)}`;
   console.log(`[webhooks/answer] Call ${callId} answered (CallUUID=${req.body.CallUUID}), pointing Stream at ${wsUrl}`);
   if (!config.publicBaseUrl) {
     console.error(`[webhooks/answer] PUBLIC_BASE_URL is not set — the Stream URL above is malformed and Plivo cannot connect to it.`);
   }
-  res.type("text/xml").send(buildAnswerXml({ callId, wsUrl }));
+  res.type("text/xml").send(buildAnswerXml({ callId, wsUrl, statusCallbackUrl }));
+});
+
+// Plivo posts here when the <Stream> connects, stops, or fails — direct ground truth about
+// whether the audio bridge ever actually engaged, instead of inferring it from silence.
+webhooksRouter.post("/stream-status", (req, res) => {
+  const callId = req.query.callId;
+  console.log(`[webhooks/stream-status] Call ${callId}:`, JSON.stringify(req.body));
+  res.status(200).end();
 });
 
 webhooksRouter.post("/hangup", async (req, res) => {

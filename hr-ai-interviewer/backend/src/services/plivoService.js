@@ -26,13 +26,21 @@ export async function placeCall({ toNumber, callId }) {
 }
 
 /**
- * Builds the Plivo XML returned from the answer webhook: a short spoken disclosure,
+ * Builds the Plivo XML returned from the answer webhook: background call recording,
  * then a bidirectional audio Stream pointing at our WebSocket bridge.
  */
 export function buildAnswerXml({ callId, wsUrl }) {
+  // recordSession (not startOnDialAnswer!) is what "record the whole call in the background,
+  // starting immediately" — per Plivo's own docs, startOnDialAnswer waits for a <Dial> leg to
+  // answer before it starts, and this Response has no <Dial> at all (we bridge audio via
+  // <Stream> to Gemini, not by dialing another party). With startOnDialAnswer, <Record> sits
+  // waiting on an event that can never fire, which — being the first verb in the Response —
+  // may block <Stream> from ever starting at all: the call connects, nothing ever happens, and
+  // it looks to the candidate like the call just dropped. recordSession starts recording
+  // immediately and falls straight through to the next verb.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record startOnDialAnswer="true" redirect="false" fileFormat="mp3"/>
+  <Record recordSession="true" redirect="false" fileFormat="mp3"/>
   <Stream bidirectional="true" keepCallAlive="true" audioTrack="both" streamTimeout="1800" contentType="audio/x-l16;rate=16000">
     ${wsUrl}?callId=${encodeURIComponent(callId)}
   </Stream>

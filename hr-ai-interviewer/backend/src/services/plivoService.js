@@ -38,12 +38,24 @@ export function buildAnswerXml({ callId, wsUrl }) {
   // may block <Stream> from ever starting at all: the call connects, nothing ever happens, and
   // it looks to the candidate like the call just dropped. recordSession starts recording
   // immediately and falls straight through to the next verb.
+  //
+  // <Stream> is NOT guaranteed to block for the whole call — if it exits for any reason
+  // (briefly dropped connection, a hiccup on either side), Plivo just falls through to
+  // whatever's next in the Response. With nothing next, Plivo hangs up immediately with cause
+  // "End Of XML Instructions" — confirmed against a real call: answered, then hung up ~1.5s
+  // later with exactly that cause, meaning the Response ran out of verbs, not that anything
+  // crashed. keepCallAlive="true" only stops that from being reported as a hard Stream error —
+  // it does not keep the call connected once the XML has nothing left to do. A long <Wait>
+  // after <Stream> keeps the Response "occupied" for the call's duration so a transient Stream
+  // hiccup can't end the call outright; matches streamTimeout so nothing here is the limiting
+  // factor before the stream's own timeout would be.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record recordSession="true" redirect="false" fileFormat="mp3"/>
   <Stream bidirectional="true" keepCallAlive="true" audioTrack="both" streamTimeout="1800" contentType="audio/x-l16;rate=16000">
     ${wsUrl}?callId=${encodeURIComponent(callId)}
   </Stream>
+  <Wait length="1800"/>
 </Response>`;
 }
 

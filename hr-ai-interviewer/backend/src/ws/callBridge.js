@@ -153,6 +153,8 @@ export function attachCallBridge(httpServer) {
     let transcript = "";
     let setupComplete = false;
     let loggedAudioFormat = false;
+    let audioChunkIndex = 0;
+    const bridgeStartedAt = Date.now();
     // Paces outgoing audio to roughly real-time instead of forwarding every chunk the instant it
     // arrives. Gemini can generate audio faster than real-time; blasting all of it at Plivo
     // immediately lets a backlog build up that Plivo's playback can't keep pace with — a real
@@ -210,6 +212,22 @@ export function attachCallBridge(httpServer) {
           const inputSamples = Buffer.byteLength(audioPart.inlineData.data, "base64") / 2;
           const durationMs = (inputSamples / sourceRate) * 1000;
           const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_STREAM_RATE);
+          const outputSamples = Buffer.byteLength(resampled, "base64") / 2;
+
+          // Every fix so far in this audio pipeline checked out correct in isolation
+          // (rate detection, resample math, pacing math) yet the live "fine for ~2s then
+          // collapses into a slow growl" symptom hasn't budged — meaning the real chunk
+          // pattern Gemini actually sends (sizes, frequency, timing) is something we've been
+          // reasoning about, not seeing. Log the first 40 chunks in full so the next test call
+          // shows that pattern directly instead of guessing at it again.
+          if (audioChunkIndex < 40) {
+            console.log(
+              `[callBridge] audio chunk #${audioChunkIndex} call=${callId} t=${Date.now() - bridgeStartedAt}ms ` +
+                `inputBytes=${Buffer.byteLength(audioPart.inlineData.data, "base64")} inputSamples=${inputSamples} sourceRate=${sourceRate} ` +
+                `outputSamples=${outputSamples} durationMs=${durationMs.toFixed(1)} nextSendAt-now=${nextSendAt - Date.now()}ms`
+            );
+          }
+          audioChunkIndex++;
 
           // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
           // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own

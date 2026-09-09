@@ -53,6 +53,7 @@ candidatesRouter.post("/", (req, res) => {
     verdict: null,
     pros: [],
     cons: [],
+    errorMessage: null,
     selected: false,
   });
   res.status(201).json({ candidate });

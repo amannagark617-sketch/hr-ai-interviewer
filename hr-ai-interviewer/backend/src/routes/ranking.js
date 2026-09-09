@@ -28,9 +28,13 @@ rankingRouter.post("/", async (req, res) => {
   const scored = pending.map((c, i) => {
     const r = results[i];
     if (r.status === "fulfilled") {
-      return store.updateCandidate(c.id, { status: "done", ...r.value });
+      return store.updateCandidate(c.id, { status: "done", errorMessage: null, ...r.value });
     }
-    return store.updateCandidate(c.id, { status: "error" });
+    // Gemini's SDK errors normally carry a useful .message (bad key, quota, blocked prompt),
+    // but log the whole thing server-side too in case a given failure doesn't.
+    console.error(`[rank] scoreResume failed for candidate ${c.id} (${c.name}):`, r.reason);
+    const reason = r.reason?.message || String(r.reason) || "Unknown error — check the backend logs";
+    return store.updateCandidate(c.id, { status: "error", errorMessage: reason });
   });
 
   res.json({ scored });

@@ -20,6 +20,19 @@ candidatesRouter.put("/job-description", (req, res) => {
   res.json({ ok: true });
 });
 
+// Upload the job description as a file instead of pasting it (.pdf, .docx, .txt).
+candidatesRouter.post("/job-description/upload", upload.single("jobDescription"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  try {
+    const text = await extractResumeText(req.file.buffer, req.file.originalname);
+    if (!text.trim()) return res.status(400).json({ error: "Couldn't find any text in that file" });
+    store.setJobDescription(text.trim());
+    res.json({ jobDescription: text.trim() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 candidatesRouter.get("/", (req, res) => {
   res.json({ candidates: store.listCandidates() });
 });

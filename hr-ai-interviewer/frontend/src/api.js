@@ -21,6 +21,11 @@ export const api = {
   getJobDescription: () => request("/candidates/job-description"),
   setJobDescription: (jobDescription) =>
     request("/candidates/job-description", { method: "PUT", body: JSON.stringify({ jobDescription }) }),
+  uploadJobDescription: (file) => {
+    const form = new FormData();
+    form.append("jobDescription", file);
+    return request("/candidates/job-description/upload", { method: "POST", body: form });
+  },
 
   listCandidates: () => request("/candidates"),
   addCandidate: (name, resumeText, phone) =>

@@ -55,7 +55,9 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [resumeField, setResumeField] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [jdUploading, setJdUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const jdFileInputRef = useRef(null);
 
   const saveJd = async (value) => {
     setJd(value);
@@ -63,6 +65,20 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       await api.setJobDescription(value);
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  const handleJdFile = async (file) => {
+    if (!file) return;
+    setError("");
+    setJdUploading(true);
+    try {
+      const { jobDescription } = await api.uploadJobDescription(file);
+      setJd(jobDescription);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setJdUploading(false);
     }
   };
 
@@ -108,8 +124,23 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
           value={jd}
           onChange={(e) => saveJd(e.target.value)}
           placeholder="Paste the full job description — responsibilities, required skills, seniority level..."
-          style={{ ...inputStyle, minHeight: 140, resize: "vertical" }}
+          style={{ ...inputStyle, minHeight: 140, resize: "vertical", marginBottom: 10 }}
         />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => jdFileInputRef.current?.click()} disabled={jdUploading} style={secondaryBtnStyle}>
+            {jdUploading ? "Reading file..." : "Upload job description (.pdf, .docx, .txt)"}
+          </button>
+          <input
+            ref={jdFileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.md"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              handleJdFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+        </div>
       </section>
 
       <section style={{ marginBottom: 24 }}>

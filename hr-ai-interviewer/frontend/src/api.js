@@ -1,4 +1,8 @@
-const BASE = "/api";
+// In dev, Vite proxies "/api" to the local backend (see vite.config.js). In production
+// (e.g. deployed on Vercel), there's no proxy, so point this at your deployed backend's
+// public URL via the VITE_API_URL environment variable (no trailing slash), e.g.
+// VITE_API_URL=https://your-backend.onrender.com
+const BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : "/api";
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {

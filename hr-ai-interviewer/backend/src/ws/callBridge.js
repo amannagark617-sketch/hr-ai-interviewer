@@ -152,6 +152,14 @@ export function attachCallBridge(httpServer) {
     const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId);
     let transcript = "";
     let setupComplete = false;
+    let loggedAudioFormat = false;
+    // Paces outgoing audio to roughly real-time instead of forwarding every chunk the instant it
+    // arrives. Gemini can generate audio faster than real-time; blasting all of it at Plivo
+    // immediately lets a backlog build up that Plivo's playback can't keep pace with — a real
+    // test call showed the first ~2s playing fine, then collapsing into slow, garbled audio,
+    // which matches a growing backlog far better than a flat rate mismatch would (that would
+    // sound wrong from the very first frame, not degrade over time).
+    let nextSendAt = Date.now();
 
     geminiSocket.on("message", (raw) => {
       let msg;
@@ -181,29 +189,52 @@ export function attachCallBridge(httpServer) {
         // documented "clear the playback queue" event for Plivo streams, so the best we can do here
         // is stop forwarding further audio for this turn; verify against a live test call whether
         // any perceptible overlap remains.
-        if (msg?.serverContent?.interrupted) return;
+        if (msg?.serverContent?.interrupted) {
+          // Drop any backlog scheduled for a turn that's no longer relevant instead of letting
+          // stale audio keep draining out (and delaying) after the candidate started talking.
+          nextSendAt = Date.now();
+          return;
+        }
 
         // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
         // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
         // to PLIVO_STREAM_RATE to actually match the rate this call declared, not just relabel it.
         const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
         if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
+          if (!loggedAudioFormat) {
+            loggedAudioFormat = true;
+            console.log(`[callBridge] First Gemini audio chunk for call ${callId}, raw mimeType: ${audioPart.inlineData.mimeType}`);
+          }
           const rateMatch = audioPart.inlineData.mimeType.match(/rate=(\d+)/);
           const sourceRate = rateMatch ? Number(rateMatch[1]) : 24000;
+          const inputSamples = Buffer.byteLength(audioPart.inlineData.data, "base64") / 2;
+          const durationMs = (inputSamples / sourceRate) * 1000;
           const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_STREAM_RATE);
+
           // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
           // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
           // contentType attribute, not here — and sampleRate is a string, not a number.
-          plivoSocket.send(
-            JSON.stringify({
-              event: "playAudio",
-              media: {
-                contentType: "audio/x-l16",
-                sampleRate: String(PLIVO_STREAM_RATE),
-                payload: resampled,
-              },
-            })
-          );
+          const sendFrame = () => {
+            if (plivoSocket.readyState === WebSocket.OPEN) {
+              plivoSocket.send(
+                JSON.stringify({
+                  event: "playAudio",
+                  media: {
+                    contentType: "audio/x-l16",
+                    sampleRate: String(PLIVO_STREAM_RATE),
+                    payload: resampled,
+                  },
+                })
+              );
+            }
+          };
+
+          const now = Date.now();
+          const sendAt = Math.max(now, nextSendAt);
+          nextSendAt = sendAt + durationMs;
+          const delay = sendAt - now;
+          if (delay > 0) setTimeout(sendFrame, delay);
+          else sendFrame();
         }
 
         // Transcription text, surfaced because inputAudioTranscription/outputAudioTranscription are

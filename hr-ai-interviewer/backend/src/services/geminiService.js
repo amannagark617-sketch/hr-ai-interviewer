@@ -3,6 +3,12 @@ import { config } from "../config.js";
 
 const client = new GoogleGenerativeAI(config.gemini.apiKey);
 
+// Gemini model names get retired and replaced fairly often — gemini-2.0-flash (and the
+// gemini-2.5-flash it aliased to) is no longer available to new API keys as of this writing.
+// If scoring starts failing with a 404 "model ... is no longer available" error, the error
+// message itself names the current replacement — swap it in here.
+const TEXT_MODEL = "gemini-3.6-flash";
+
 function parseJsonResponse(text) {
   const cleaned = text.replace(/```json|```/g, "").trim();
   try {
@@ -17,7 +23,7 @@ function parseJsonResponse(text) {
  * Returns { score, verdict, pros, cons }.
  */
 export async function scoreResume(jobDescription, resumeText, candidateName) {
-  const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = client.getGenerativeModel({ model: TEXT_MODEL });
 
   const prompt = `You are an expert technical recruiter screening a resume against a single job description.
 Respond with ONLY a JSON object — no markdown fences, no preamble.
@@ -49,7 +55,7 @@ ${resumeText}`;
  * recommendation is one of "advance" | "hold" | "reject".
  */
 export async function scoreInterviewTranscript(jobDescription, transcript, candidateName) {
-  const model = client.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = client.getGenerativeModel({ model: TEXT_MODEL });
 
   const prompt = `You are an experienced interviewer reviewing a first-round phone screen transcript.
 Respond with ONLY a JSON object — no markdown fences, no preamble.

@@ -10,7 +10,11 @@ export const config = {
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
 
   gemini: {
-    apiKey: process.env.GEMINI_API_KEY || "",
+    // Deliberately NOT named GEMINI_API_KEY: some deploy platforms (Google AI Studio's Build
+    // flow included) recognize that exact name as "the" managed key and auto-fill it from
+    // whichever account/project you're deployed under, refusing a manual override. Using a
+    // different name here lets you paste in a key from any account as an ordinary secret.
+    apiKey: process.env.HR_APP_GEMINI_KEY || "",
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
   },

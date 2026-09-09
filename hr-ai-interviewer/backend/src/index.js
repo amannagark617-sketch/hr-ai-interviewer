@@ -25,7 +25,13 @@ attachCallBridge(server);
 
 server.listen(config.port, () => {
   console.log(`API listening on http://localhost:${config.port}`);
+  if (!config.gemini.apiKey) {
+    console.warn("GEMINI_API_KEY is not set — resume ranking and interview calls won't work yet. See README.");
+  }
   if (!config.publicBaseUrl) {
     console.warn("PUBLIC_BASE_URL is not set — Plivo webhooks and the audio stream won't be reachable. See README.");
+  }
+  if (!config.plivo.authId || !config.plivo.authToken || !config.plivo.fromNumber) {
+    console.warn("Plivo credentials are not fully set — candidate calls won't work yet. See README.");
   }
 });

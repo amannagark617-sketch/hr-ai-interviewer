@@ -7,7 +7,7 @@ function tierFor(score) {
   return { label: "Weak fit", color: "var(--rust)", bg: "var(--rust-soft)" };
 }
 
-export default function Results({ candidates, refreshCandidates }) {
+export default function Results({ candidates, refreshCandidates, onCallsTriggered }) {
   const [expanded, setExpanded] = useState(null);
   const [triggering, setTriggering] = useState(false);
   const [callMessage, setCallMessage] = useState("");
@@ -34,8 +34,9 @@ export default function Results({ candidates, refreshCandidates }) {
       setCallMessage(
         failed.length
           ? `${outcomes.length - failed.length} call(s) started. Failed: ${failed.map((f) => f.error).join(", ")}`
-          : `${outcomes.length} call(s) started — check your Plivo logs and the Google Sheet as they land.`
+          : `${outcomes.length} call(s) started — see the Calls tab for live status.`
       );
+      if (outcomes.some((o) => o.ok)) onCallsTriggered?.();
     } catch (e) {
       setCallMessage(e.message);
     } finally {

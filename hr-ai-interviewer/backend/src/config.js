@@ -11,6 +11,9 @@ export const config = {
 
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || "",
+    // Google retires/renames Gemini model IDs fairly often. Overridable so a model swap is an
+    // env var change (redeploy, no code edit) instead of a full fix-and-push cycle.
+    textModel: process.env.GEMINI_TEXT_MODEL || "gemini-3.6-flash",
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
   },

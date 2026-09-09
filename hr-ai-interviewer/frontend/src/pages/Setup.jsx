@@ -36,6 +36,18 @@ const secondaryBtnStyle = {
   borderRadius: 7,
   cursor: "pointer",
 };
+const sampleBtnStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "10px 18px",
+  fontSize: 14,
+  fontWeight: 500,
+  background: "var(--accent)",
+  color: "var(--bg)",
+  border: "none",
+  borderRadius: 8,
+  cursor: "pointer",
+};
 const iconBtnStyle = {
   display: "flex",
   alignItems: "center",
@@ -49,6 +61,47 @@ const iconBtnStyle = {
   color: "var(--faint)",
 };
 
+const SAMPLE_JD = `Senior Full-Stack Engineer
+
+We're looking for a Senior Full-Stack Engineer to join our product team. You'll own features end-to-end across a React/TypeScript frontend and a Node.js backend, mentor junior engineers, and help shape our technical roadmap.
+
+Responsibilities:
+- Design, build, and ship full-stack features from database to UI
+- Review code and mentor other engineers on the team
+- Collaborate with product and design to scope and estimate work
+- Improve system performance, reliability, and test coverage
+
+Required skills:
+- 5+ years of professional software engineering experience
+- Strong proficiency in JavaScript/TypeScript, React, and Node.js
+- Experience designing REST or GraphQL APIs and relational databases (PostgreSQL/MySQL)
+- Comfortable with cloud infrastructure (AWS or GCP) and CI/CD pipelines
+
+Nice to have:
+- Experience with real-time systems (WebSockets, streaming)
+- Prior experience mentoring or leading a small team`;
+
+const SAMPLE_CANDIDATES = [
+  {
+    name: "Priya Sharma",
+    phone: "+91 98765 43210",
+    resumeText:
+      "Priya Sharma — Senior Software Engineer, 7 years experience. Led full-stack development of a React/Node.js SaaS platform serving 200k+ users. Designed REST APIs, PostgreSQL schemas, and AWS deployment pipelines. Mentored 3 junior engineers. Previously built real-time collaboration features using WebSockets. B.Tech in Computer Science, IIT Delhi.",
+  },
+  {
+    name: "Marcus Chen",
+    phone: "+91 91234 56789",
+    resumeText:
+      "Marcus Chen — Full-Stack Developer, 3 years experience. Built and maintained React frontends and Express APIs for an e-commerce startup. Comfortable with TypeScript and MySQL, some exposure to AWS via Elastic Beanstalk. Has not led a team or worked on large-scale systems yet. B.S. in Information Technology.",
+  },
+  {
+    name: "Ananya Iyer",
+    phone: "+91 99887 66554",
+    resumeText:
+      "Ananya Iyer — Staff Engineer, 9 years experience. Architected microservices in Node.js and TypeScript, GraphQL APIs, and CI/CD pipelines on GCP. Led a team of 5 engineers, drove adoption of automated testing across the org. Deep experience with distributed systems and streaming data pipelines. M.S. in Computer Science, Stanford.",
+  },
+];
+
 export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank }) {
   const [nameField, setNameField] = useState("");
   const [phoneField, setPhoneField] = useState("");
@@ -56,8 +109,25 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [jdUploading, setJdUploading] = useState(false);
+  const [loadingSample, setLoadingSample] = useState(false);
   const fileInputRef = useRef(null);
   const jdFileInputRef = useRef(null);
+
+  const loadSampleData = async () => {
+    setError("");
+    setLoadingSample(true);
+    try {
+      await saveJd(SAMPLE_JD);
+      for (const c of SAMPLE_CANDIDATES) {
+        await api.addCandidate(c.name, c.resumeText, c.phone);
+      }
+      refreshCandidates();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoadingSample(false);
+    }
+  };
 
   const saveJd = async (value) => {
     setJd(value);
@@ -118,6 +188,27 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
 
   return (
     <div style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px 80px" }}>
+      {!jd.trim() && candidates.length === 0 && (
+        <section
+          style={{
+            marginBottom: 32,
+            padding: 20,
+            border: "1px dashed var(--border)",
+            borderRadius: 10,
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
+            🚀 Quick Start: Try with Sample Data
+          </div>
+          <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>
+            Populate a Senior Full-Stack role with 3 diverse resumes to see Gemini AI screening in action.
+          </div>
+          <button onClick={loadSampleData} disabled={loadingSample} style={sampleBtnStyle}>
+            {loadingSample ? "Loading..." : "⚡ Load Sample Role & Candidates"}
+          </button>
+        </section>
+      )}
+
       <section style={{ marginBottom: 32 }}>
         <label style={labelStyle}>Job description</label>
         <textarea

@@ -52,6 +52,9 @@ export function buildAnswerXml({ callId, wsUrl, statusCallbackUrl }) {
   //
   // statusCallbackUrl gets Plivo to directly tell us when the stream connects, stops, or fails —
   // actual ground truth instead of inferring failure from absence of logs.
+  //
+  // The rate=16000 below must match PLIVO_STREAM_RATE in ws/callBridge.js — that's the rate
+  // Gemini's 24kHz native audio output gets resampled down to before being sent back to Plivo.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Record recordSession="true" redirect="false" fileFormat="mp3"/>

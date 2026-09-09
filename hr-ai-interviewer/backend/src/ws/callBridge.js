@@ -22,6 +22,34 @@ import { store } from "../data/store.js";
 const GEMINI_LIVE_URL =
   `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.gemini.apiKey}`;
 
+// The <Stream> tag below declares one shared contentType (16kHz) for this connection, but
+// Gemini Live's audio output is fixed at 24kHz — it's not something we can request at a
+// different rate. Relaying that 24kHz PCM to Plivo unconverted, just relabeled, is what made a
+// real test call sound "very slow, like a snail": whatever rate Plivo actually plays audio back
+// at, the real data doesn't match it. Actually resampling down to 16kHz — instead of just
+// changing a label — is correct regardless of which rate Plivo turns out to honor.
+function resamplePcm16(base64Data, fromRate, toRate) {
+  if (fromRate === toRate) return base64Data;
+  const input = Buffer.from(base64Data, "base64");
+  const inputSamples = input.length / 2; // 16-bit PCM = 2 bytes/sample
+  const outputSamples = Math.floor((inputSamples * toRate) / fromRate);
+  const output = Buffer.alloc(outputSamples * 2);
+  const ratio = fromRate / toRate;
+
+  for (let i = 0; i < outputSamples; i++) {
+    const srcPos = i * ratio;
+    const lo = Math.floor(srcPos);
+    const hi = Math.min(lo + 1, inputSamples - 1);
+    const frac = srcPos - lo;
+    const sampleLo = input.readInt16LE(lo * 2);
+    const sampleHi = input.readInt16LE(hi * 2);
+    output.writeInt16LE(Math.round(sampleLo + (sampleHi - sampleLo) * frac), i * 2);
+  }
+  return output.toString("base64");
+}
+
+const PLIVO_STREAM_RATE = 16000; // must match the <Stream> contentType rate attribute below
+
 function buildAgentSystemPrompt({ jobDescription, candidateName, resumeText }) {
   return `You are Maya, a warm, sharp recruiter doing a quick first-round phone screen. You are on a live
 phone call right now — talk like a real person on the phone, never like you're reading a script or
@@ -156,24 +184,23 @@ export function attachCallBridge(httpServer) {
         if (msg?.serverContent?.interrupted) return;
 
         // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
-        // is 24kHz, not the 16kHz we send it — read the real rate out of the mimeType instead of
-        // assuming, or Plivo will play it back at the wrong speed/pitch.
+        // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
+        // to PLIVO_STREAM_RATE to actually match the rate this call declared, not just relabel it.
         const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
         if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
           const rateMatch = audioPart.inlineData.mimeType.match(/rate=(\d+)/);
-          const sampleRate = rateMatch ? rateMatch[1] : "24000";
+          const sourceRate = rateMatch ? Number(rateMatch[1]) : 24000;
+          const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_STREAM_RATE);
           // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
           // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
-          // contentType attribute, not here — and sampleRate is a string, not a number. Sending
-          // either wrong shape risks Plivo silently dropping every frame: the candidate hears
-          // nothing even though the call stays connected and Gemini is generating audio fine.
+          // contentType attribute, not here — and sampleRate is a string, not a number.
           plivoSocket.send(
             JSON.stringify({
               event: "playAudio",
               media: {
                 contentType: "audio/x-l16",
-                sampleRate,
-                payload: audioPart.inlineData.data,
+                sampleRate: String(PLIVO_STREAM_RATE),
+                payload: resampled,
               },
             })
           );

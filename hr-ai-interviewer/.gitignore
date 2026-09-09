@@ -5,3 +5,4 @@ build/
 *.log
 backend/data/*.json
 .DS_Store
+package-lock.json

@@ -66,6 +66,15 @@ export function buildAnswerXml({ callId, wsUrl, statusCallbackUrl }) {
 }
 
 /**
+ * Actively ends a call. Used when the AI agent decides the conversation is over (via the
+ * end_call tool) — without this, the <Wait length="1800"/> safety net that stops the call from
+ * dropping mid-conversation also means nothing ever hangs it up once the agent is actually done.
+ */
+export async function hangupCall(plivoCallUuid) {
+  await client.calls.hangup(plivoCallUuid);
+}
+
+/**
  * Fetches a call's recording URL after it has ended. Plivo needs a moment after
  * hangup before the recording is processed and listed, so this retries a few
  * times with a short delay instead of giving up on the first empty result.

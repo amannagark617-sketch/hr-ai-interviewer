@@ -7,6 +7,10 @@ const candidates = new Map(); // id -> candidate
 const calls = new Map(); // callId -> call job
 
 let jobDescription = "";
+// Optional, applies to every candidate in this round — mandatory questions HR wants asked on top
+// of the usual JD/resume-grounded ones (e.g. a role-specific screening question that isn't
+// inferable from the JD or any one resume). Empty string means "none set".
+let customQuestions = "";
 
 export const store = {
   setJobDescription(text) {
@@ -14,6 +18,13 @@ export const store = {
   },
   getJobDescription() {
     return jobDescription;
+  },
+
+  setCustomQuestions(text) {
+    customQuestions = text;
+  },
+  getCustomQuestions() {
+    return customQuestions;
   },
 
   addCandidate(candidate) {

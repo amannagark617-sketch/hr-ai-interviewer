@@ -29,6 +29,17 @@ export const api = {
   generateJobDescription: (notes) =>
     request("/candidates/job-description/generate", { method: "POST", body: JSON.stringify({ notes }) }),
 
+  // Optional, mandatory-to-ask questions on top of the usual resume/JD-grounded ones — applies to
+  // every candidate in the round, same shape as the job description endpoints above.
+  getCustomQuestions: () => request("/candidates/custom-questions"),
+  setCustomQuestions: (customQuestions) =>
+    request("/candidates/custom-questions", { method: "PUT", body: JSON.stringify({ customQuestions }) }),
+  uploadCustomQuestions: (file) => {
+    const form = new FormData();
+    form.append("customQuestions", file);
+    return request("/candidates/custom-questions/upload", { method: "POST", body: form });
+  },
+
   listCandidates: () => request("/candidates"),
   addCandidate: (name, resumeText, phone) =>
     request("/candidates", { method: "POST", body: JSON.stringify({ name, resumeText, phone }) }),

@@ -59,6 +59,33 @@ candidatesRouter.post("/job-description/upload", upload.single("jobDescription")
   }
 });
 
+// Optional mandatory questions HR wants asked on top of the usual JD/resume-grounded ones —
+// same shape as the job description endpoints above (get/set/upload).
+candidatesRouter.get("/custom-questions", (req, res) => {
+  res.json({ customQuestions: store.getCustomQuestions() });
+});
+
+candidatesRouter.put("/custom-questions", (req, res) => {
+  const { customQuestions } = req.body;
+  if (typeof customQuestions !== "string") {
+    return res.status(400).json({ error: "customQuestions is required" });
+  }
+  store.setCustomQuestions(customQuestions.trim());
+  res.json({ ok: true });
+});
+
+candidatesRouter.post("/custom-questions/upload", upload.single("customQuestions"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  try {
+    const text = await extractResumeText(req.file.buffer, req.file.originalname);
+    if (!text.trim()) return res.status(400).json({ error: "Couldn't find any text in that file" });
+    store.setCustomQuestions(text.trim());
+    res.json({ customQuestions: text.trim() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 candidatesRouter.get("/", (req, res) => {
   res.json({ candidates: store.listCandidates().map(sanitizeCandidate) });
 });

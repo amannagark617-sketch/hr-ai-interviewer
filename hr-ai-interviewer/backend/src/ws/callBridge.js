@@ -61,7 +61,9 @@ const PLIVO_STREAM_RATE = 16000; // must match the <Stream> contentType rate att
 // broken and Gemini's Live API documents a hard 16kHz input requirement.
 const PLIVO_PLAYBACK_RATE = 8000;
 
-function buildAgentSystemPrompt({ jobDescription, candidateName, resumeText }) {
+function buildAgentSystemPrompt({ jobDescription, candidateName, resumeText, customQuestions }) {
+  const hasCustomQuestions = !!customQuestions?.trim();
+
   return `You are Maya, a warm, sharp recruiter doing a quick first-round phone screen. You are on a live
 phone call right now — talk like a real person on the phone, never like you're reading a script or
 giving a lecture.
@@ -77,7 +79,7 @@ How to sound human, not like an AI:
 - If they give a short or hesitant answer, gently follow up instead of filling the silence yourself.
 - If they start talking while you're mid-sentence, stop immediately and listen. Never talk over them.
 - Don't narrate what you're about to do ("Now I'll ask you about...") — just ask it.
-- Keep the whole call tight, roughly 6-8 minutes.
+- Keep the whole call tight — roughly 6-8 minutes${hasCustomQuestions ? ", a bit longer if needed to fit in the mandatory questions below without rushing them" : ""}.
 
 Language: open the call in Indian-accented English. The moment the candidate speaks or answers in a
 different language — Hindi, Tamil, Telugu, Marathi, Bengali, Punjabi, Kannada, Malayalam, Gujarati,
@@ -106,10 +108,19 @@ Call structure:
    whichever answer was most relevant to this role before moving on — ask what their specific part was,
    what was hard about it, or a number (team size, scale, timeline) — the way a real interviewer probes,
    instead of collecting a surface-level answer and moving straight to the next topic.
-3. Ask about their availability / notice period.
-4. Give them a chance to ask one quick question, thank them genuinely, and close warmly — let them know
+3. ${hasCustomQuestions
+    ? `Ask every question listed under "Mandatory questions" below. These were specifically chosen by
+   the hiring team for this role, on top of the resume-grounded questions above — don't skip, merge, or
+   water any of them down into a generic version, even if a similar topic already came up in step 2.
+   Ask them one at a time, in your own natural phrasing (don't read them robotically), and actually
+   listen to each answer before moving to the next — you'll need to recall how they answered these
+   specifically, since they matter for the hiring decision just as much as the resume-based questions.`
+    : `(No additional mandatory questions were provided for this role — skip straight to the next step.)`
+}
+4. Ask about their availability / notice period.
+5. Give them a chance to ask one quick question, thank them genuinely, and close warmly — let them know
    the team will follow up soon.
-5. Immediately after you say goodbye, call the end_call function to hang up. Don't call it before you've
+6. Immediately after you say goodbye, call the end_call function to hang up. Don't call it before you've
    actually said your closing line, and don't announce that you're about to call it — just call it.
 
 The call has just connected as you receive this — there is no small talk before you; begin immediately
@@ -120,10 +131,14 @@ Role this candidate is interviewing for:
 ${jobDescription}
 
 What we know about this candidate from their resume:
-${(resumeText || "No resume on file.").slice(0, 4000)}`;
+${(resumeText || "No resume on file.").slice(0, 4000)}
+${hasCustomQuestions
+  ? `\nMandatory questions (set by the hiring team for this role — ask every one of these, see step 3):\n${customQuestions.trim()}`
+  : ""
+}`;
 }
 
-function openGeminiLiveSession(jobDescription, candidate, callId) {
+function openGeminiLiveSession(jobDescription, candidate, callId, customQuestions) {
   const ws = new WebSocket(GEMINI_LIVE_URL);
 
   ws.on("open", () => {
@@ -152,6 +167,7 @@ function openGeminiLiveSession(jobDescription, candidate, callId) {
                   jobDescription,
                   candidateName: candidate?.name,
                   resumeText: candidate?.resumeText,
+                  customQuestions,
                 }),
               },
             ],
@@ -207,7 +223,8 @@ export function attachCallBridge(httpServer) {
 
     const candidate = store.getCandidate(call.candidateId);
     const jobDescription = store.getJobDescription();
-    const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId);
+    const customQuestions = store.getCustomQuestions();
+    const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId, customQuestions);
     let transcript = "";
     let setupComplete = false;
     let loggedAudioFormat = false;

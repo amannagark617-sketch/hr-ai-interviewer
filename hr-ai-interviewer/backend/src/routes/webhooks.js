@@ -46,6 +46,7 @@ webhooksRouter.post("/hangup", async (req, res) => {
   if (!call) return;
   const candidate = store.getCandidate(call.candidateId);
   const jobDescription = store.getJobDescription();
+  const customQuestions = store.getCustomQuestions();
 
   store.updateCall(callId, { status: "completed" });
 
@@ -84,7 +85,7 @@ webhooksRouter.post("/hangup", async (req, res) => {
 
   if (latestCall.transcript?.trim()) {
     try {
-      const scored = await scoreInterviewTranscript(jobDescription, latestCall.transcript, candidate?.name || "Candidate");
+      const scored = await scoreInterviewTranscript(jobDescription, latestCall.transcript, candidate?.name || "Candidate", customQuestions);
       interviewScore = scored.score;
       recommendation = scored.recommendation;
       summary = scored.summary;

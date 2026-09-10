@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 500, color: "var(--muted)", marginBottom: 8 };
@@ -115,8 +115,15 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [jdGenerating, setJdGenerating] = useState(false);
   const [editingPhoneId, setEditingPhoneId] = useState(null);
   const [phoneEditValue, setPhoneEditValue] = useState("");
+  const [customQuestions, setCustomQuestions] = useState("");
+  const [customQuestionsUploading, setCustomQuestionsUploading] = useState(false);
   const fileInputRef = useRef(null);
   const jdFileInputRef = useRef(null);
+  const customQuestionsFileInputRef = useRef(null);
+
+  useEffect(() => {
+    api.getCustomQuestions().then((r) => setCustomQuestions(r.customQuestions || "")).catch(() => {});
+  }, []);
 
   const loadSampleData = async () => {
     setError("");
@@ -170,6 +177,29 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       setError(e.message);
     } finally {
       setJdUploading(false);
+    }
+  };
+
+  const saveCustomQuestions = async (value) => {
+    setCustomQuestions(value);
+    try {
+      await api.setCustomQuestions(value);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleCustomQuestionsFile = async (file) => {
+    if (!file) return;
+    setError("");
+    setCustomQuestionsUploading(true);
+    try {
+      const { customQuestions } = await api.uploadCustomQuestions(file);
+      setCustomQuestions(customQuestions);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCustomQuestionsUploading(false);
     }
   };
 
@@ -293,6 +323,43 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
             </div>
           </div>
         )}
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <label style={labelStyle}>
+          Custom interview questions <span style={{ fontWeight: 400, color: "var(--faint)" }}>(optional)</span>
+        </label>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
+          The AI always asks questions grounded in the job description and each candidate's resume. Add
+          questions here — paste them or upload a file — and it will ask every one of them too, on every
+          call for this role, and factor the answers into the interview score.
+        </div>
+        <textarea
+          value={customQuestions}
+          onChange={(e) => saveCustomQuestions(e.target.value)}
+          placeholder={"e.g.\n1. Are you comfortable working rotational shifts?\n2. Why are you interested in the furniture/recliner industry specifically?"}
+          style={{ ...inputStyle, minHeight: 90, resize: "vertical", marginBottom: 10 }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={() => customQuestionsFileInputRef.current?.click()} disabled={customQuestionsUploading} style={secondaryBtnStyle}>
+            {customQuestionsUploading ? "Reading file..." : "Upload questions (.pdf, .docx, .txt)"}
+          </button>
+          <input
+            ref={customQuestionsFileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.md"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              handleCustomQuestionsFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          {customQuestions.trim() && (
+            <button onClick={() => saveCustomQuestions("")} style={{ ...secondaryBtnStyle, background: "transparent", border: "none", color: "var(--faint)" }}>
+              Clear
+            </button>
+          )}
+        </div>
       </section>
 
       <section style={{ marginBottom: 24 }}>

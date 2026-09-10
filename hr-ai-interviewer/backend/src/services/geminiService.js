@@ -98,8 +98,9 @@ ${resumeText}`;
  * Returns { score, recommendation, summary, strengths, concerns }.
  * recommendation is one of "advance" | "hold" | "reject".
  */
-export async function scoreInterviewTranscript(jobDescription, transcript, candidateName) {
+export async function scoreInterviewTranscript(jobDescription, transcript, candidateName, customQuestions) {
   const model = client.getGenerativeModel({ model: config.gemini.textModel });
+  const hasCustomQuestions = !!customQuestions?.trim();
 
   const prompt = `You are an experienced interviewer reviewing a first-round phone screen transcript.
 Respond with ONLY a JSON object — no markdown fences, no preamble.
@@ -114,10 +115,19 @@ Shape:
 }
 
 Base this only on what the candidate actually said in the transcript below — do not invent details.
-
+${hasCustomQuestions
+  ? `\nThe interviewer was specifically required to ask the "Mandatory questions" listed below, on top
+of the usual resume/JD-grounded questions. Find where each one was asked in the transcript and weigh
+the candidate's answers to them just as heavily as everything else — a weak or evasive answer to a
+mandatory question is a real concern, and a strong one is a real strength, even if it isn't directly
+about the job description. If the transcript shows the interviewer never actually got to one of them
+(call ended early, cut off, etc.), don't penalize the candidate for that gap — note it neutrally in
+the summary instead.\n`
+  : ""
+}
 Job description:
 ${jobDescription}
-
+${hasCustomQuestions ? `\nMandatory questions the interviewer was required to ask:\n${customQuestions.trim()}\n` : ""}
 Interview transcript (${candidateName}):
 ${transcript}`;
 

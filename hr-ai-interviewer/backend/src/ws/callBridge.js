@@ -50,6 +50,16 @@ function resamplePcm16(base64Data, fromRate, toRate) {
 
 const PLIVO_STREAM_RATE = 16000; // must match the <Stream> contentType rate attribute below
 
+// Sending audio genuinely resampled to match PLIVO_STREAM_RATE (16000, correctly labeled, no
+// pacing artifacts) was still reported as slow and pitch-dropped on a real call — ruling out
+// "Plivo plays back at its own declared Stream rate" as the mechanism. The one documented value
+// not yet tried: 8000Hz is Plivo's own stated *default* contentType rate, matching the native
+// bandwidth of a real phone line — worth testing directly that Plivo's playAudio path is
+// hardwired to it regardless of what rate we declare. Only the outgoing (agent voice) leg uses
+// this; the incoming leg (candidate audio -> Gemini) is untouched since it hasn't been reported
+// broken and Gemini's Live API documents a hard 16kHz input requirement.
+const PLIVO_PLAYBACK_RATE = 8000;
+
 function buildAgentSystemPrompt({ jobDescription, candidateName, resumeText }) {
   return `You are Maya, a warm, sharp recruiter doing a quick first-round phone screen. You are on a live
 phone call right now — talk like a real person on the phone, never like you're reading a script or
@@ -187,7 +197,7 @@ export function attachCallBridge(httpServer) {
 
         // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
         // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
-        // to PLIVO_STREAM_RATE to actually match the rate this call declared, not just relabel it.
+        // to PLIVO_PLAYBACK_RATE (see that constant's comment for why it's 8000, not 16000).
         const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
         if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
           if (!loggedAudioFormat) {
@@ -198,18 +208,11 @@ export function attachCallBridge(httpServer) {
           const sourceRate = rateMatch ? Number(rateMatch[1]) : 24000;
           const inputSamples = Buffer.byteLength(audioPart.inlineData.data, "base64") / 2;
           const durationMs = (inputSamples / sourceRate) * 1000;
-          const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_STREAM_RATE);
+          const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_PLAYBACK_RATE);
           const outputSamples = Buffer.byteLength(resampled, "base64") / 2;
 
-          // Diagnostic evidence from a real call proved artificially pacing these sends (holding
-          // each chunk back with setTimeout to space them at real-time intervals) was the actual
-          // bug: Gemini generates audio roughly 5x faster than real-time, so the pacing backlog
-          // grew unbounded (7+ seconds and climbing within the first few seconds of a call).
-          // Starving Plivo's playback of chunks it needs right now, then dumping a delayed
-          // backlog, is exactly what produces "fine for ~2s, then a slow, pitch-dropped growl" —
-          // that's the signature of a playback engine time-stretching to cover a buffer
-          // underrun. Send every chunk immediately; Plivo is a telephony platform built to
-          // receive and buffer a live PCM stream in real time on its own end.
+          // Sent immediately, no artificial pacing — an earlier pacing attempt was proven (via
+          // these same diagnostics) to build an unbounded backlog and was removed.
           if (audioChunkIndex < 40) {
             console.log(
               `[callBridge] audio chunk #${audioChunkIndex} call=${callId} t=${Date.now() - bridgeStartedAt}ms ` +
@@ -227,7 +230,7 @@ export function attachCallBridge(httpServer) {
               event: "playAudio",
               media: {
                 contentType: "audio/x-l16",
-                sampleRate: String(PLIVO_STREAM_RATE),
+                sampleRate: String(PLIVO_PLAYBACK_RATE),
                 payload: resampled,
               },
             })

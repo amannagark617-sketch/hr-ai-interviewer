@@ -63,10 +63,26 @@ const PLIVO_PLAYBACK_RATE = 8000;
 
 function buildAgentSystemPrompt({ jobDescription, candidateName, resumeText, customQuestions }) {
   const hasCustomQuestions = !!customQuestions?.trim();
+  // Lets the model resolve a relative time the candidate gives ("tomorrow evening", "Monday at
+  // 5") into an absolute ISO datetime for the request_callback tool — without today's actual
+  // date/time it has no way to know what "tomorrow" even means.
+  const nowIst = new Date().toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 
-  return `You are Maya, a warm, sharp recruiter doing a quick first-round phone screen. You are on a live
-phone call right now — talk like a real person on the phone, never like you're reading a script or
-giving a lecture.
+  return `You are Nidra, an HR Assistant at Little Nap Recliners, doing a quick first-round phone screen.
+You are on a live phone call right now — talk like a real person on the phone, never like you're
+reading a script or giving a lecture.
+
+Right now it is ${nowIst} IST — use this if the candidate gives you a relative time (e.g. "tomorrow
+evening", "call me after 6", "Monday morning") and you need to resolve it to an actual date/time.
 
 How to sound human, not like an AI:
 - Keep every turn SHORT — one or two sentences, sometimes just a few words ("Got it.", "Nice, tell me
@@ -99,28 +115,46 @@ details to sound informed — a candidate correcting a false claim about their o
 worse than admitting you don't have much to go on.
 
 Call structure:
-1. Open warmly, confirm you're speaking with ${candidateName || "the candidate"}, and mention — in one
-   natural breath, not as a formal disclaimer — that the call is being recorded for hiring purposes.
-2. Ask 2-3 questions about the experience most relevant to this role, grounded in specifics from their
+1. Open warmly: give your name, that you're an HR Assistant at Little Nap Recliners, and confirm
+   you're speaking with ${candidateName || "the candidate"}. Mention — in one natural breath, not as a
+   formal disclaimer — that the call is being recorded for hiring purposes.
+2. Then ask if now is a good time for a quick chat — and this is a REAL question, not a pleasantry.
+   Stop talking and actually listen for their answer before doing anything else. This is the single
+   most common way this call goes wrong: do not ask "is now a good time?" and then immediately barrel
+   into interview questions regardless of what they say — that is never acceptable. Treat it exactly
+   like every other question in this call: ask it, then wait.
+   - If they say yes (or anything that clearly means "go ahead") -> continue to step 3.
+   - If they say no, sound busy, ask to talk later, or hesitate in a way that signals now isn't good ->
+     do NOT ask any interview questions. Go straight to the callback flow below instead, then end the
+     call — skip the rest of this structure entirely.
+
+   Callback flow (only when they can't talk now): ask what day and time would work better for them.
+   Once they give you something — even vague ("tomorrow evening", "after 6pm") — resolve it into an
+   actual date and time using the current date/time given above, call the request_callback function
+   with that resolved date/time, thank them for their patience, close warmly, and call end_call. If
+   they don't give a specific time even after you ask, pick a sensible one yourself (e.g. the next
+   business day, same time as this call) and tell them what you picked before calling request_callback
+   — don't leave it unset.
+3. Ask 2-3 questions about the experience most relevant to this role, grounded in specifics from their
    resume below (not generic questions you could ask anyone). Name the actual project, employer, or
    technology from their resume in the question itself ("Tell me about the payments system you built at
    X" beats "Tell me about your backend experience"). Once they answer, go one level deeper on
    whichever answer was most relevant to this role before moving on — ask what their specific part was,
    what was hard about it, or a number (team size, scale, timeline) — the way a real interviewer probes,
    instead of collecting a surface-level answer and moving straight to the next topic.
-3. ${hasCustomQuestions
+4. ${hasCustomQuestions
     ? `Ask every question listed under "Mandatory questions" below. These were specifically chosen by
    the hiring team for this role, on top of the resume-grounded questions above — don't skip, merge, or
-   water any of them down into a generic version, even if a similar topic already came up in step 2.
+   water any of them down into a generic version, even if a similar topic already came up in step 3.
    Ask them one at a time, in your own natural phrasing (don't read them robotically), and actually
    listen to each answer before moving to the next — you'll need to recall how they answered these
    specifically, since they matter for the hiring decision just as much as the resume-based questions.`
     : `(No additional mandatory questions were provided for this role — skip straight to the next step.)`
 }
-4. Ask about their availability / notice period.
-5. Give them a chance to ask one quick question, thank them genuinely, and close warmly — let them know
+5. Ask about their availability / notice period.
+6. Give them a chance to ask one quick question, thank them genuinely, and close warmly — let them know
    the team will follow up soon.
-6. Immediately after you say goodbye, call the end_call function to hang up. Don't call it before you've
+7. Immediately after you say goodbye, call the end_call function to hang up. Don't call it before you've
    actually said your closing line, and don't announce that you're about to call it — just call it.
 
 The call has just connected as you receive this — there is no small talk before you; begin immediately
@@ -184,6 +218,26 @@ function openGeminiLiveSession(jobDescription, candidate, callId, customQuestion
                   description:
                     "Hang up the phone call. Call this immediately after saying your closing goodbye, once the interview is complete.",
                   parameters: { type: "OBJECT", properties: {} },
+                },
+                {
+                  name: "request_callback",
+                  description:
+                    "Call this when the candidate says now isn't a good time and needs to be called back later, INSTEAD of asking any interview questions. Records the callback time so the call gets automatically re-placed then. Call end_call right after this, once you've said your closing line.",
+                  parameters: {
+                    type: "OBJECT",
+                    properties: {
+                      preferredDateTime: {
+                        type: "STRING",
+                        description:
+                          "The candidate's preferred callback date and time, resolved to an absolute ISO 8601 datetime with the +05:30 offset (e.g. 2026-09-12T17:00:00+05:30) using the current IST date/time given earlier in these instructions plus whatever they said. If they gave no specific time, pick a sensible one yourself and say it back to them before calling this.",
+                      },
+                      note: {
+                        type: "STRING",
+                        description: "One short phrase on why/what they said, e.g. \"asked to call back after their current meeting\".",
+                      },
+                    },
+                    required: ["preferredDateTime"],
+                  },
                 },
               ],
             },
@@ -270,11 +324,49 @@ export function attachCallBridge(httpServer) {
           );
         }
 
+        const functionCalls = msg?.toolCall?.functionCalls;
+
+        // The candidate can't talk now and gave (or was given) a callback time — save it on the
+        // candidate record so the callback scheduler (see services/callbackScheduler.js) picks it
+        // up and automatically re-places this call later, instead of it falling through the
+        // cracks. Doesn't `return` — a request_callback call is always immediately followed by
+        // end_call, which may arrive in the same toolCall message.
+        const callbackCall = functionCalls?.find((fc) => fc.name === "request_callback");
+        if (callbackCall) {
+          const { preferredDateTime, note } = callbackCall.args || {};
+          console.log(
+            `[callBridge] Agent requested callback for call ${callId} at ${preferredDateTime}${note ? ` (${note})` : ""}`
+          );
+          if (candidate && preferredDateTime) {
+            store.updateCandidate(candidate.id, {
+              callbackScheduledFor: preferredDateTime,
+              callbackNote: note || "",
+              callbackStatus: "pending",
+            });
+          } else {
+            console.error(
+              `[callBridge] request_callback fired for call ${callId} but candidate or preferredDateTime missing — cannot schedule.`
+            );
+          }
+          // Gemini Live's function-calling protocol pauses generation until it gets a matching
+          // toolResponse — unlike end_call (which just ends the whole session right after),
+          // this call needs to keep going afterward (thank them, close, then end_call), so a
+          // missing response here would leave the agent silently stuck mid-call.
+          if (geminiSocket.readyState === WebSocket.OPEN) {
+            geminiSocket.send(
+              JSON.stringify({
+                toolResponse: {
+                  functionResponses: [{ id: callbackCall.id, name: "request_callback", response: { result: "ok" } }],
+                },
+              })
+            );
+          }
+        }
+
         // The model decided the interview is over and is hanging up (see the end_call tool
         // declared in the setup message above). Actually end the call instead of leaving the
         // phone connected after the agent has already said goodbye — this is also what lets
         // /hangup ever fire so the post-call score/recommendation get computed and stored.
-        const functionCalls = msg?.toolCall?.functionCalls;
         if (functionCalls?.some((fc) => fc.name === "end_call")) {
           console.log(`[callBridge] Agent called end_call for call ${callId} — hanging up`);
           if (call.plivoCallUuid) {

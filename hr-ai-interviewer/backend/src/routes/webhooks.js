@@ -18,6 +18,7 @@ webhooksRouter.post("/answer", (req, res) => {
   store.updateCall(callId, {
     status: "in-progress",
     plivoCallUuid: req.body.CallUUID,
+    answeredAt: new Date().toISOString(),
   });
 
   const wsUrl = `${config.publicBaseUrl.replace(/^http/, "ws")}/ws/media`;
@@ -78,6 +79,8 @@ webhooksRouter.post("/hangup", async (req, res) => {
   let interviewScore = null;
   let recommendation = null;
   let summary = "";
+  let interviewStrengths = [];
+  let interviewConcerns = [];
 
   if (latestCall.transcript?.trim()) {
     try {
@@ -85,6 +88,8 @@ webhooksRouter.post("/hangup", async (req, res) => {
       interviewScore = scored.score;
       recommendation = scored.recommendation;
       summary = scored.summary;
+      interviewStrengths = scored.strengths || [];
+      interviewConcerns = scored.concerns || [];
       console.log(`[webhooks/hangup] Call ${callId} scored: ${interviewScore} (${recommendation})`);
     } catch (err) {
       console.error(`[webhooks/hangup] Failed to score interview transcript for call ${callId}:`, err);
@@ -93,7 +98,17 @@ webhooksRouter.post("/hangup", async (req, res) => {
     console.error(`[webhooks/hangup] Call ${callId} has no transcript after retrying — skipping post-call scoring. Either the call had no audible speech, or the WS bridge never persisted one.`);
   }
 
-  store.updateCall(callId, { recordingUrl, interviewScore, recommendation, summary });
+  const durationSeconds = call.answeredAt ? Math.round((Date.now() - new Date(call.answeredAt).getTime()) / 1000) : null;
+
+  store.updateCall(callId, {
+    recordingUrl,
+    interviewScore,
+    recommendation,
+    summary,
+    strengths: interviewStrengths,
+    concerns: interviewConcerns,
+    durationSeconds,
+  });
 
   if (config.appsScript.webAppUrl) {
     try {
@@ -102,9 +117,18 @@ webhooksRouter.post("/hangup", async (req, res) => {
         phone: candidate?.phone || "",
         resumeScore: candidate?.score,
         resumeVerdict: candidate?.verdict,
+        resumePros: candidate?.pros || [],
+        resumeCons: candidate?.cons || [],
+        // Sent raw so Code.gs can save it as a Drive file and link it from the row — keeps this
+        // app's "no service account" design (Apps Script already runs as the sheet owner's own
+        // Google identity, so it can write to that same account's Drive with no new credentials).
+        resumeText: candidate?.resumeText || "",
         callStatus: "completed",
+        callDurationSeconds: durationSeconds,
         interviewScore,
         recommendation,
+        interviewStrengths,
+        interviewConcerns,
         recordingUrl,
         interviewSummary: summary,
       });

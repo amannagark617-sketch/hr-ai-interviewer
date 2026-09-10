@@ -6,6 +6,7 @@ import { candidatesRouter } from "./routes/candidates.js";
 import { rankingRouter } from "./routes/ranking.js";
 import { callsRouter } from "./routes/calls.js";
 import { webhooksRouter } from "./routes/webhooks.js";
+import { dashboardRouter } from "./routes/dashboard.js";
 import { attachCallBridge } from "./ws/callBridge.js";
 
 const app = express();
@@ -19,6 +20,7 @@ app.use("/api/candidates", candidatesRouter);
 app.use("/api/rank", rankingRouter);
 app.use("/api/calls", callsRouter);
 app.use("/api/webhooks", webhooksRouter);
+app.use("/api/dashboard", dashboardRouter);
 
 const server = http.createServer(app);
 attachCallBridge(server);

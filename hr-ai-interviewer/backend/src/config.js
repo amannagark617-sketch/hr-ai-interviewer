@@ -31,6 +31,12 @@ export const config = {
     webAppUrl: process.env.APPS_SCRIPT_WEB_APP_URL || "",
     secret: process.env.APPS_SCRIPT_SECRET || "",
   },
+
+  // The published-CSV URL from Sheet -> File -> Share -> Publish to web -> CSV. Fetched
+  // server-side (see routes/dashboard.js) rather than directly from the browser — Google's CSV
+  // export doesn't reliably send CORS headers permitting a cross-origin fetch from the app's own
+  // domain, so a direct browser fetch can fail even though the URL itself works fine.
+  sheetCsvUrl: process.env.SHEET_CSV_URL || "",
 };
 
 export function assertConfigured(keys) {

@@ -26,17 +26,58 @@ export async function placeCall({ toNumber, callId }) {
 }
 
 /**
- * Builds the Plivo XML returned from the answer webhook: a short spoken disclosure,
+ * Builds the Plivo XML returned from the answer webhook: background call recording,
  * then a bidirectional audio Stream pointing at our WebSocket bridge.
  */
-export function buildAnswerXml({ callId, wsUrl }) {
+export function buildAnswerXml({ callId, wsUrl, statusCallbackUrl }) {
+  // recordSession (not startOnDialAnswer!) is what "record the whole call in the background,
+  // starting immediately" — per Plivo's own docs, startOnDialAnswer waits for a <Dial> leg to
+  // answer before it starts, and this Response has no <Dial> at all (we bridge audio via
+  // <Stream> to Gemini, not by dialing another party). With startOnDialAnswer, <Record> sits
+  // waiting on an event that can never fire, which — being the first verb in the Response —
+  // may block <Stream> from ever starting at all. recordSession starts recording immediately
+  // and falls straight through to the next verb.
+  //
+  // Per Plivo's Audio Streaming docs: keepCallAlive="true" makes <Stream> run *exclusively* —
+  // subsequent verbs only execute after the stream disconnects. The trailing <Wait> is a
+  // second-layer safety net for that "subsequent verb" once the stream does end, so the call
+  // doesn't drop the instant it does.
+  //
+  // The actual bug that was silently killing every call: bidirectional="true" was combined with
+  // audioTrack="both" — Plivo's own docs say explicitly "When bidirectional is true, audioTrack
+  // cannot be outbound or both." That invalid combination is almost certainly why Plivo never
+  // even attempted the WebSocket connection in three separate real test calls (confirmed via
+  // Cloud Run logs — zero trace of any connection attempt reaching our backend). Dropped
+  // audioTrack entirely; bidirectional alone covers both directions.
+  //
+  // statusCallbackUrl gets Plivo to directly tell us when the stream connects, stops, or fails —
+  // actual ground truth instead of inferring failure from absence of logs.
+  //
+  // The rate=16000 below must match PLIVO_STREAM_RATE in ws/callBridge.js — that's the rate
+  // Gemini's 24kHz native audio output gets resampled down to before being sent back to Plivo.
+  //
+  // maxLength defaults to 60 seconds per Plivo's own docs — and unlike timeout/finishOnKey/
+  // playBeep, the docs never say it's ignored for recordSession="true". Recordings were being
+  // cut off at ~59s on calls that ran well past a minute, which matches that default exactly.
+  // Set it explicitly to the same ceiling as streamTimeout/<Wait> below so recording length is
+  // never the limiting factor before the call's own limits are.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record startOnDialAnswer="true" redirect="false" fileFormat="mp3"/>
-  <Stream bidirectional="true" keepCallAlive="true" audioTrack="both" streamTimeout="1800" contentType="audio/x-l16;rate=16000">
+  <Record recordSession="true" maxLength="1800" redirect="false" fileFormat="mp3"/>
+  <Stream bidirectional="true" keepCallAlive="true" streamTimeout="1800" contentType="audio/x-l16;rate=16000" statusCallbackUrl="${statusCallbackUrl}" statusCallbackMethod="POST">
     ${wsUrl}?callId=${encodeURIComponent(callId)}
   </Stream>
+  <Wait length="1800"/>
 </Response>`;
+}
+
+/**
+ * Actively ends a call. Used when the AI agent decides the conversation is over (via the
+ * end_call tool) — without this, the <Wait length="1800"/> safety net that stops the call from
+ * dropping mid-conversation also means nothing ever hangs it up once the agent is actually done.
+ */
+export async function hangupCall(plivoCallUuid) {
+  await client.calls.hangup(plivoCallUuid);
 }
 
 /**

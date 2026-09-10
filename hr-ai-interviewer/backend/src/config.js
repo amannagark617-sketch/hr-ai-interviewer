@@ -10,13 +10,20 @@ export const config = {
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
 
   gemini: {
-    // Deliberately NOT named GEMINI_API_KEY: some deploy platforms (Google AI Studio's Build
-    // flow included) recognize that exact name as "the" managed key and auto-fill it from
-    // whichever account/project you're deployed under, refusing a manual override. Using a
-    // different name here lets you paste in a key from any account as an ordinary secret.
-    apiKey: process.env.HR_APP_GEMINI_KEY || "",
+    apiKey: process.env.GEMINI_API_KEY || "",
+    // Google retires/renames Gemini model IDs fairly often. Overridable so a model swap is an
+    // env var change (redeploy, no code edit) instead of a full fix-and-push cycle.
+    textModel: process.env.GEMINI_TEXT_MODEL || "gemini-3.6-flash",
+    // Same deal for the Live API (phone call) model — separate lineage/rotation schedule from
+    // the text model above, so it gets its own override.
+    liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-3.1-flash-live-preview",
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
+    // BCP-47 language code for the Live API's spoken output — this is what actually controls
+    // accent/pronunciation (the prebuilt voice above only picks the voice's timbre). Defaults to
+    // Indian English since candidates and phone numbers here are India-focused; the voice was
+    // defaulting to a US/UK-sounding accent with this unset.
+    voiceLanguage: process.env.GEMINI_VOICE_LANGUAGE || "en-IN",
   },
 
   plivo: {
@@ -29,6 +36,12 @@ export const config = {
     webAppUrl: process.env.APPS_SCRIPT_WEB_APP_URL || "",
     secret: process.env.APPS_SCRIPT_SECRET || "",
   },
+
+  // The published-CSV URL from Sheet -> File -> Share -> Publish to web -> CSV. Fetched
+  // server-side (see routes/dashboard.js) rather than directly from the browser — Google's CSV
+  // export doesn't reliably send CORS headers permitting a cross-origin fetch from the app's own
+  // domain, so a direct browser fetch can fail even though the URL itself works fine.
+  sheetCsvUrl: process.env.SHEET_CSV_URL || "",
 };
 
 export function assertConfigured(keys) {

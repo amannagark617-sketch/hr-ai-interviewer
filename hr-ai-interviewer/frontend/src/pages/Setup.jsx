@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 500, color: "var(--muted)", marginBottom: 8 };
@@ -9,31 +9,43 @@ const inputStyle = {
   fontSize: 14,
   padding: "10px 12px",
   border: "1px solid var(--border)",
-  borderRadius: 8,
+  borderRadius: "var(--radius-md)",
   background: "var(--surface)",
   color: "var(--ink)",
 };
 const primaryBtnStyle = {
   width: "100%",
-  padding: "13px 20px",
+  padding: "14px 20px",
   fontSize: 15,
   fontWeight: 500,
   background: "var(--accent)",
   color: "var(--bg)",
   border: "none",
-  borderRadius: 9,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const secondaryBtnStyle = {
   display: "flex",
   alignItems: "center",
-  padding: "8px 14px",
+  padding: "9px 16px",
   fontSize: 13.5,
   fontWeight: 500,
   background: "var(--surface)",
   color: "var(--ink)",
-  border: "1px solid #D8D2C2",
-  borderRadius: 7,
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-pill)",
+  cursor: "pointer",
+};
+const sampleBtnStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "10px 20px",
+  fontSize: 14,
+  fontWeight: 500,
+  background: "var(--accent)",
+  color: "var(--bg)",
+  border: "none",
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const iconBtnStyle = {
@@ -44,10 +56,51 @@ const iconBtnStyle = {
   height: 28,
   background: "transparent",
   border: "none",
-  borderRadius: 6,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
   color: "var(--faint)",
 };
+
+const SAMPLE_JD = `Senior Full-Stack Engineer
+
+We're looking for a Senior Full-Stack Engineer to join our product team. You'll own features end-to-end across a React/TypeScript frontend and a Node.js backend, mentor junior engineers, and help shape our technical roadmap.
+
+Responsibilities:
+- Design, build, and ship full-stack features from database to UI
+- Review code and mentor other engineers on the team
+- Collaborate with product and design to scope and estimate work
+- Improve system performance, reliability, and test coverage
+
+Required skills:
+- 5+ years of professional software engineering experience
+- Strong proficiency in JavaScript/TypeScript, React, and Node.js
+- Experience designing REST or GraphQL APIs and relational databases (PostgreSQL/MySQL)
+- Comfortable with cloud infrastructure (AWS or GCP) and CI/CD pipelines
+
+Nice to have:
+- Experience with real-time systems (WebSockets, streaming)
+- Prior experience mentoring or leading a small team`;
+
+const SAMPLE_CANDIDATES = [
+  {
+    name: "Priya Sharma",
+    phone: "+91 98765 43210",
+    resumeText:
+      "Priya Sharma — Senior Software Engineer, 7 years experience. Led full-stack development of a React/Node.js SaaS platform serving 200k+ users. Designed REST APIs, PostgreSQL schemas, and AWS deployment pipelines. Mentored 3 junior engineers. Previously built real-time collaboration features using WebSockets. B.Tech in Computer Science, IIT Delhi.",
+  },
+  {
+    name: "Marcus Chen",
+    phone: "+91 91234 56789",
+    resumeText:
+      "Marcus Chen — Full-Stack Developer, 3 years experience. Built and maintained React frontends and Express APIs for an e-commerce startup. Comfortable with TypeScript and MySQL, some exposure to AWS via Elastic Beanstalk. Has not led a team or worked on large-scale systems yet. B.S. in Information Technology.",
+  },
+  {
+    name: "Ananya Iyer",
+    phone: "+91 99887 66554",
+    resumeText:
+      "Ananya Iyer — Staff Engineer, 9 years experience. Architected microservices in Node.js and TypeScript, GraphQL APIs, and CI/CD pipelines on GCP. Led a team of 5 engineers, drove adoption of automated testing across the org. Deep experience with distributed systems and streaming data pipelines. M.S. in Computer Science, Stanford.",
+  },
+];
 
 export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank }) {
   const [nameField, setNameField] = useState("");
@@ -56,8 +109,37 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [jdUploading, setJdUploading] = useState(false);
+  const [loadingSample, setLoadingSample] = useState(false);
+  const [showJdGenerator, setShowJdGenerator] = useState(false);
+  const [jdNotes, setJdNotes] = useState("");
+  const [jdGenerating, setJdGenerating] = useState(false);
+  const [editingPhoneId, setEditingPhoneId] = useState(null);
+  const [phoneEditValue, setPhoneEditValue] = useState("");
+  const [customQuestions, setCustomQuestions] = useState("");
+  const [customQuestionsUploading, setCustomQuestionsUploading] = useState(false);
   const fileInputRef = useRef(null);
   const jdFileInputRef = useRef(null);
+  const customQuestionsFileInputRef = useRef(null);
+
+  useEffect(() => {
+    api.getCustomQuestions().then((r) => setCustomQuestions(r.customQuestions || "")).catch(() => {});
+  }, []);
+
+  const loadSampleData = async () => {
+    setError("");
+    setLoadingSample(true);
+    try {
+      await saveJd(SAMPLE_JD);
+      for (const c of SAMPLE_CANDIDATES) {
+        await api.addCandidate(c.name, c.resumeText, c.phone);
+      }
+      refreshCandidates();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoadingSample(false);
+    }
+  };
 
   const saveJd = async (value) => {
     setJd(value);
@@ -65,6 +147,22 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       await api.setJobDescription(value);
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  const handleGenerateJd = async () => {
+    if (!jdNotes.trim()) return;
+    setError("");
+    setJdGenerating(true);
+    try {
+      const { jobDescription } = await api.generateJobDescription(jdNotes.trim());
+      setJd(jobDescription);
+      setShowJdGenerator(false);
+      setJdNotes("");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setJdGenerating(false);
     }
   };
 
@@ -79,6 +177,29 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       setError(e.message);
     } finally {
       setJdUploading(false);
+    }
+  };
+
+  const saveCustomQuestions = async (value) => {
+    setCustomQuestions(value);
+    try {
+      await api.setCustomQuestions(value);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleCustomQuestionsFile = async (file) => {
+    if (!file) return;
+    setError("");
+    setCustomQuestionsUploading(true);
+    try {
+      const { customQuestions } = await api.uploadCustomQuestions(file);
+      setCustomQuestions(customQuestions);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCustomQuestionsUploading(false);
     }
   };
 
@@ -114,10 +235,47 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
     refreshCandidates();
   };
 
+  const startEditingPhone = (c) => {
+    setEditingPhoneId(c.id);
+    setPhoneEditValue(c.phone || "");
+  };
+
+  const savePhone = async (id) => {
+    try {
+      await api.updateCandidate(id, { phone: phoneEditValue.trim() });
+      refreshCandidates();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setEditingPhoneId(null);
+    }
+  };
+
   const canRank = jd.trim().length > 0 && candidates.length > 0;
 
   return (
     <div style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px 80px" }}>
+      {!jd.trim() && candidates.length === 0 && (
+        <section
+          style={{
+            marginBottom: 32,
+            padding: 20,
+            border: "1px dashed var(--border)",
+            borderRadius: "var(--radius-lg)",
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
+            Quick start: try with sample data
+          </div>
+          <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>
+            Populate a Senior Full-Stack role with 3 diverse resumes to see Gemini AI screening in action.
+          </div>
+          <button onClick={loadSampleData} disabled={loadingSample} style={sampleBtnStyle}>
+            {loadingSample ? "Loading..." : "Load sample role & candidates"}
+          </button>
+        </section>
+      )}
+
       <section style={{ marginBottom: 32 }}>
         <label style={labelStyle}>Job description</label>
         <textarea
@@ -126,7 +284,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
           placeholder="Paste the full job description — responsibilities, required skills, seniority level..."
           style={{ ...inputStyle, minHeight: 140, resize: "vertical", marginBottom: 10 }}
         />
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button onClick={() => jdFileInputRef.current?.click()} disabled={jdUploading} style={secondaryBtnStyle}>
             {jdUploading ? "Reading file..." : "Upload job description (.pdf, .docx, .txt)"}
           </button>
@@ -140,12 +298,73 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
               e.target.value = "";
             }}
           />
+          <span style={{ fontSize: 13, color: "var(--faint)" }}>or</span>
+          <button onClick={() => setShowJdGenerator((v) => !v)} style={secondaryBtnStyle}>
+            Generate with AI
+          </button>
+        </div>
+
+        {showJdGenerator && (
+          <div style={{ marginTop: 12, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
+            <label style={labelStyle}>Describe the role — title, seniority, tech stack, anything specific</label>
+            <textarea
+              value={jdNotes}
+              onChange={(e) => setJdNotes(e.target.value)}
+              placeholder="e.g. Senior backend engineer, 5+ years, Node.js and Postgres, remote-friendly, leads a small team..."
+              style={{ ...inputStyle, minHeight: 80, resize: "vertical", marginBottom: 10 }}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={handleGenerateJd} disabled={!jdNotes.trim() || jdGenerating} style={secondaryBtnStyle}>
+                {jdGenerating ? "Generating..." : "Generate job description"}
+              </button>
+              <button onClick={() => setShowJdGenerator(false)} style={{ ...secondaryBtnStyle, background: "transparent", border: "none" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <label style={labelStyle}>
+          Custom interview questions <span style={{ fontWeight: 400, color: "var(--faint)" }}>(optional)</span>
+        </label>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
+          The AI always asks questions grounded in the job description and each candidate's resume. Add
+          questions here — paste them or upload a file — and it will ask every one of them too, on every
+          call for this role, and factor the answers into the interview score.
+        </div>
+        <textarea
+          value={customQuestions}
+          onChange={(e) => saveCustomQuestions(e.target.value)}
+          placeholder={"e.g.\n1. Are you comfortable working rotational shifts?\n2. Why are you interested in the furniture/recliner industry specifically?"}
+          style={{ ...inputStyle, minHeight: 90, resize: "vertical", marginBottom: 10 }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={() => customQuestionsFileInputRef.current?.click()} disabled={customQuestionsUploading} style={secondaryBtnStyle}>
+            {customQuestionsUploading ? "Reading file..." : "Upload questions (.pdf, .docx, .txt)"}
+          </button>
+          <input
+            ref={customQuestionsFileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.md"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              handleCustomQuestionsFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          {customQuestions.trim() && (
+            <button onClick={() => saveCustomQuestions("")} style={{ ...secondaryBtnStyle, background: "transparent", border: "none", color: "var(--faint)" }}>
+              Clear
+            </button>
+          )}
         </div>
       </section>
 
       <section style={{ marginBottom: 24 }}>
         <label style={labelStyle}>Add a candidate</label>
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
           <input
             value={nameField}
             onChange={(e) => setNameField(e.target.value)}
@@ -204,16 +423,42 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  gap: 12,
                   background: "var(--surface)",
                   border: "1px solid var(--border)",
-                  borderRadius: 8,
+                  borderRadius: "var(--radius-md)",
                   padding: "10px 14px",
                 }}
               >
-                <div style={{ fontSize: 14 }}>
-                  {c.name}
-                  {!c.phone && <span style={{ color: "var(--faint)", fontSize: 12 }}> — no phone number yet</span>}
-                </div>
+                <div style={{ fontSize: 14, flex: 1, minWidth: 0 }}>{c.name}</div>
+                {editingPhoneId === c.id ? (
+                  <input
+                    autoFocus
+                    value={phoneEditValue}
+                    onChange={(e) => setPhoneEditValue(e.target.value)}
+                    onBlur={() => savePhone(c.id)}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    placeholder="+91XXXXXXXXXX"
+                    style={{ ...inputStyle, width: 170, padding: "6px 10px", fontSize: 13 }}
+                  />
+                ) : (
+                  <button
+                    onClick={() => startEditingPhone(c)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      padding: "4px 6px",
+                      borderRadius: "var(--radius-pill)",
+                      color: c.phone ? "var(--muted)" : "var(--rust)",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Click to edit phone number"
+                  >
+                    {c.phone || "no phone — click to add"}
+                  </button>
+                )}
                 <button onClick={() => removeCandidate(c.id)} aria-label={`Remove ${c.name}`} style={iconBtnStyle}>
                   ✕
                 </button>

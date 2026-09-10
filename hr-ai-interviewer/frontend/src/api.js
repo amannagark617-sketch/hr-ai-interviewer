@@ -18,6 +18,15 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // Roles — each is a self-contained hiring round (its own job description, custom questions,
+  // and candidates). One is "active" at a time; every other endpoint below implicitly operates
+  // on whichever role is currently active.
+  listRoles: () => request("/roles"),
+  createRole: (title) => request("/roles", { method: "POST", body: JSON.stringify({ title }) }),
+  setActiveRole: (roleId) => request("/roles/active", { method: "PUT", body: JSON.stringify({ roleId }) }),
+  renameRole: (id, title) => request(`/roles/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  removeRole: (id) => request(`/roles/${id}`, { method: "DELETE" }),
+
   getJobDescription: () => request("/candidates/job-description"),
   setJobDescription: (jobDescription) =>
     request("/candidates/job-description", { method: "PUT", body: JSON.stringify({ jobDescription }) }),
@@ -25,6 +34,19 @@ export const api = {
     const form = new FormData();
     form.append("jobDescription", file);
     return request("/candidates/job-description/upload", { method: "POST", body: form });
+  },
+  generateJobDescription: (notes) =>
+    request("/candidates/job-description/generate", { method: "POST", body: JSON.stringify({ notes }) }),
+
+  // Optional, mandatory-to-ask questions on top of the usual resume/JD-grounded ones — applies to
+  // every candidate in the round, same shape as the job description endpoints above.
+  getCustomQuestions: () => request("/candidates/custom-questions"),
+  setCustomQuestions: (customQuestions) =>
+    request("/candidates/custom-questions", { method: "PUT", body: JSON.stringify({ customQuestions }) }),
+  uploadCustomQuestions: (file) => {
+    const form = new FormData();
+    form.append("customQuestions", file);
+    return request("/candidates/custom-questions/upload", { method: "POST", body: form });
   },
 
   listCandidates: () => request("/candidates"),
@@ -44,4 +66,15 @@ export const api = {
   triggerCalls: (candidateIds) =>
     request("/calls/trigger", { method: "POST", body: JSON.stringify({ candidateIds }) }),
   listCalls: () => request("/calls"),
+
+  // Raw text, not JSON — proxied server-side by the backend (see routes/dashboard.js) so the
+  // browser never has to fetch Google's published-CSV URL directly, which can hit CORS.
+  getSheetCsv: async () => {
+    const res = await fetch(`${BASE}/dashboard/sheet-csv`, { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.text();
+  },
 };

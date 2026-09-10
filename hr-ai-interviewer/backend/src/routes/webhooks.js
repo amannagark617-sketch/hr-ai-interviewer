@@ -10,15 +10,32 @@ export const webhooksRouter = Router();
 webhooksRouter.post("/answer", (req, res) => {
   const callId = req.query.callId;
   const call = store.getCall(callId);
-  if (!call) return res.status(404).send("Unknown call");
+  if (!call) {
+    console.error(`[webhooks/answer] Unknown callId=${JSON.stringify(callId)} — candidate picked up but we have no record of this call.`);
+    return res.status(404).send("Unknown call");
+  }
 
   store.updateCall(callId, {
     status: "in-progress",
     plivoCallUuid: req.body.CallUUID,
+    answeredAt: new Date().toISOString(),
   });
 
   const wsUrl = `${config.publicBaseUrl.replace(/^http/, "ws")}/ws/media`;
-  res.type("text/xml").send(buildAnswerXml({ callId, wsUrl }));
+  const statusCallbackUrl = `${config.publicBaseUrl}/api/webhooks/stream-status?callId=${encodeURIComponent(callId)}`;
+  console.log(`[webhooks/answer] Call ${callId} answered (CallUUID=${req.body.CallUUID}), pointing Stream at ${wsUrl}`);
+  if (!config.publicBaseUrl) {
+    console.error(`[webhooks/answer] PUBLIC_BASE_URL is not set — the Stream URL above is malformed and Plivo cannot connect to it.`);
+  }
+  res.type("text/xml").send(buildAnswerXml({ callId, wsUrl, statusCallbackUrl }));
+});
+
+// Plivo posts here when the <Stream> connects, stops, or fails — direct ground truth about
+// whether the audio bridge ever actually engaged, instead of inferring it from silence.
+webhooksRouter.post("/stream-status", (req, res) => {
+  const callId = req.query.callId;
+  console.log(`[webhooks/stream-status] Call ${callId}:`, JSON.stringify(req.body));
+  res.status(200).end();
 });
 
 webhooksRouter.post("/hangup", async (req, res) => {
@@ -28,40 +45,143 @@ webhooksRouter.post("/hangup", async (req, res) => {
 
   if (!call) return;
   const candidate = store.getCandidate(call.candidateId);
-  const jobDescription = store.getJobDescription();
+  // Resolved via the candidate's own role — see the matching comment in callBridge.js. Scoring
+  // must grade against the job description this candidate was actually interviewed for, not
+  // whatever role HR happens to have selected by the time this webhook fires.
+  const role = store.getRole(candidate?.roleId);
+  const jobDescription = role?.jobDescription || "";
+  const customQuestions = role?.customQuestions || "";
+
+  // Duration was previously computed as Date.now() - answeredAt at the BOTTOM of this handler —
+  // after the recording fetch, the transcript-wait retry loop, and the Gemini scoring call had
+  // all already run, so "now" was however long those took (seconds to tens of seconds) after the
+  // call actually ended, not at hangup. Plivo's own hangup callback carries the real duration it
+  // measured (Duration, seconds, falling back to BillDuration) — that's ground truth from the
+  // call itself, immune to any lag or bug in our own answeredAt bookkeeping, so prefer it and only
+  // fall back to our own estimate — captured right here, before any of those delays — if Plivo
+  // didn't send one.
+  const plivoDuration = Number(req.body.Duration ?? req.body.BillDuration ?? req.body.duration ?? req.body.bill_duration);
+  const selfEstimatedDuration = call.answeredAt ? Math.round((Date.now() - new Date(call.answeredAt).getTime()) / 1000) : null;
+  const durationSeconds = Number.isFinite(plivoDuration) && plivoDuration >= 0 ? plivoDuration : selfEstimatedDuration;
+  console.log(
+    `[webhooks/hangup] Call ${callId} duration: Plivo reported Duration=${req.body.Duration} BillDuration=${req.body.BillDuration}, our own estimate=${selfEstimatedDuration}s, using ${durationSeconds}s`
+  );
 
   store.updateCall(callId, { status: "completed" });
 
+  // Recording fetch, interview scoring, and Sheets logging are three independent outcomes —
+  // each used to be chained in one try block, so a failure in an earlier step (Gemini scoring
+  // hitting a transient error, say) silently skipped every step after it, including Sheets
+  // logging, with only a single generic error logged for the whole chain. Each now runs in its
+  // own try/catch and logs its own clear outcome, so a failure in one is never mistaken for a
+  // failure in (or silently taken out) the others.
+
+  let recordingUrl = null;
   try {
-    const recordingUrl = call.plivoCallUuid ? await getRecordingUrl(call.plivoCallUuid) : null;
+    recordingUrl = call.plivoCallUuid ? await getRecordingUrl(call.plivoCallUuid) : null;
+  } catch (err) {
+    console.error(`[webhooks/hangup] Failed to fetch recording URL for call ${callId}:`, err);
+  }
 
-    let interviewScore = null;
-    let recommendation = null;
-    let summary = "";
+  // The /hangup webhook and the media WebSocket's own close event are two separate,
+  // independently-timed callbacks from Plivo — there's no guarantee this webhook fires after
+  // the WS side has finished writing the final transcript into the store (callBridge.js does
+  // that in its plivoSocket "close" handler). Using the `call` snapshot captured at the top of
+  // this handler risks reading transcript before it's been persisted, silently skipping
+  // scoring — a call finishes, the page shows "Completed" with nothing else. Re-fetch and give
+  // it a moment, the same pattern already used for getRecordingUrl above.
+  let latestCall = call;
+  for (let attempt = 0; attempt < 4 && !latestCall.transcript?.trim(); attempt++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    latestCall = store.getCall(callId) || latestCall;
+  }
 
-    if (call.transcript?.trim()) {
-      const scored = await scoreInterviewTranscript(jobDescription, call.transcript, candidate?.name || "Candidate");
+  // Re-fetch — request_callback (see ws/callBridge.js) sets this on the candidate mid-call, and
+  // this handler only runs once the call has actually ended, so it's reliably up to date. Only
+  // "pending" means a fresh callback request came in during THIS call: the scheduler flips it to
+  // "triggered" the instant it re-dials, before the new call even connects, so "pending" can never
+  // just be a leftover from some earlier, already-handled request.
+  const latestCandidate = store.getCandidate(call.candidateId) || candidate;
+  const callbackRequested = latestCandidate?.callbackStatus === "pending";
+
+  let interviewScore = null;
+  let recommendation = null;
+  let summary = "";
+  let interviewStrengths = [];
+  let interviewConcerns = [];
+
+  if (callbackRequested) {
+    // No real interview happened — scoring a "sorry, can't talk now" exchange as if it were one
+    // would produce a meaningless low score/reject. Nothing to compute; the callback fields below
+    // carry the actual outcome of this call instead.
+    console.log(
+      `[webhooks/hangup] Call ${callId}: candidate asked to be called back at ${latestCandidate.callbackScheduledFor} — skipping scoring.`
+    );
+  } else if (latestCall.transcript?.trim()) {
+    try {
+      const scored = await scoreInterviewTranscript(jobDescription, latestCall.transcript, candidate?.name || "Candidate", customQuestions);
       interviewScore = scored.score;
       recommendation = scored.recommendation;
       summary = scored.summary;
+      interviewStrengths = scored.strengths || [];
+      interviewConcerns = scored.concerns || [];
+      console.log(`[webhooks/hangup] Call ${callId} scored: ${interviewScore} (${recommendation})`);
+    } catch (err) {
+      console.error(`[webhooks/hangup] Failed to score interview transcript for call ${callId}:`, err);
     }
+  } else {
+    console.error(`[webhooks/hangup] Call ${callId} has no transcript after retrying — skipping post-call scoring. Either the call had no audible speech, or the WS bridge never persisted one.`);
+  }
 
-    store.updateCall(callId, { recordingUrl, interviewScore, recommendation, summary });
+  store.updateCall(callId, {
+    recordingUrl,
+    interviewScore,
+    recommendation,
+    summary,
+    strengths: interviewStrengths,
+    concerns: interviewConcerns,
+    durationSeconds,
+  });
 
-    if (config.appsScript.webAppUrl) {
+  if (config.appsScript.webAppUrl) {
+    try {
       await appendCallResultRow({
         candidateName: candidate?.name || "Unknown",
+        role: role?.title || "",
         phone: candidate?.phone || "",
         resumeScore: candidate?.score,
         resumeVerdict: candidate?.verdict,
-        callStatus: "completed",
+        resumePros: candidate?.pros || [],
+        resumeCons: candidate?.cons || [],
+        // Sent raw so Code.gs can save it as a Drive file and link it from the row — keeps this
+        // app's "no service account" design (Apps Script already runs as the sheet owner's own
+        // Google identity, so it can write to that same account's Drive with no new credentials).
+        // resumeFile (the exact original upload) is preferred when present; Code.gs falls back to
+        // saving resumeText as a plain-text file for candidates added by pasting text directly,
+        // which never had an original file to begin with.
+        resumeText: candidate?.resumeText || "",
+        resumeFileBase64: candidate?.resumeFile?.base64 || "",
+        resumeFileName: candidate?.resumeFile?.filename || "",
+        resumeMimeType: candidate?.resumeFile?.mimeType || "",
+        callStatus: callbackRequested ? "callback requested" : "completed",
+        callDurationSeconds: durationSeconds,
         interviewScore,
         recommendation,
+        interviewStrengths,
+        interviewConcerns,
         recordingUrl,
         interviewSummary: summary,
+        callbackScheduledFor: callbackRequested ? latestCandidate.callbackScheduledFor : "",
+        callbackNote: callbackRequested ? latestCandidate.callbackNote || "" : "",
       });
+      console.log(`[webhooks/hangup] Call ${callId} logged to Google Sheets.`);
+    } catch (err) {
+      // Most common causes: the SECRET in Code.gs doesn't match APPS_SCRIPT_SECRET (a very easy
+      // thing to update in one place and forget the other), or the deployment's access level
+      // isn't set to "Anyone" (sheetsService.js reports that case with its own clearer message).
+      console.error(`[webhooks/hangup] Failed to log call ${callId} to Google Sheets:`, err.message);
     }
-  } catch (err) {
-    console.error(`[webhooks/hangup] Failed to finalize call ${callId}:`, err);
+  } else {
+    console.warn(`[webhooks/hangup] APPS_SCRIPT_WEB_APP_URL is not set — call ${callId} was not logged to Sheets.`);
   }
 });

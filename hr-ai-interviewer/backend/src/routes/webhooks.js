@@ -51,15 +51,31 @@ webhooksRouter.post("/hangup", async (req, res) => {
   try {
     const recordingUrl = call.plivoCallUuid ? await getRecordingUrl(call.plivoCallUuid) : null;
 
+    // The /hangup webhook and the media WebSocket's own close event are two separate,
+    // independently-timed callbacks from Plivo — there's no guarantee this webhook fires after
+    // the WS side has finished writing the final transcript into the store (callBridge.js does
+    // that in its plivoSocket "close" handler). Using the `call` snapshot captured at the top of
+    // this handler risks reading transcript before it's been persisted, silently skipping
+    // scoring — a call finishes, the page shows "Completed" with nothing else, and there's no
+    // error anywhere to explain why. Re-fetch and give it a moment, the same pattern already used
+    // for getRecordingUrl above.
+    let latestCall = call;
+    for (let attempt = 0; attempt < 4 && !latestCall.transcript?.trim(); attempt++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      latestCall = store.getCall(callId) || latestCall;
+    }
+
     let interviewScore = null;
     let recommendation = null;
     let summary = "";
 
-    if (call.transcript?.trim()) {
-      const scored = await scoreInterviewTranscript(jobDescription, call.transcript, candidate?.name || "Candidate");
+    if (latestCall.transcript?.trim()) {
+      const scored = await scoreInterviewTranscript(jobDescription, latestCall.transcript, candidate?.name || "Candidate");
       interviewScore = scored.score;
       recommendation = scored.recommendation;
       summary = scored.summary;
+    } else {
+      console.error(`[webhooks/hangup] Call ${callId} has no transcript after retrying — skipping post-call scoring. Either the call had no audible speech, or the WS bridge never persisted one.`);
     }
 
     store.updateCall(callId, { recordingUrl, interviewScore, recommendation, summary });

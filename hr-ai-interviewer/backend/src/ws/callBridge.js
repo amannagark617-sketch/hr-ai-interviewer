@@ -130,6 +130,9 @@ function openGeminiLiveSession(jobDescription, candidate, callId) {
             responseModalities: ["AUDIO"],
             speechConfig: {
               voiceConfig: { prebuiltVoiceConfig: { voiceName: config.gemini.voiceName } },
+              // Controls the actual accent/pronunciation — languageCode is what was missing
+              // before, so the voice defaulted to sounding US/UK rather than Indian English.
+              languageCode: config.gemini.voiceLanguage,
             },
           },
           // Without these, serverContent never carries transcription text for either side,

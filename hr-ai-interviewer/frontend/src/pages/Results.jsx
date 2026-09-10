@@ -14,6 +14,13 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
 
   const sorted = [...candidates].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   const selected = candidates.filter((c) => c.selected);
+  const scored = candidates.filter((c) => c.status === "done");
+  const tierCounts = { strong: 0, possible: 0, weak: 0 };
+  scored.forEach((c) => {
+    if (c.score >= 75) tierCounts.strong++;
+    else if (c.score >= 50) tierCounts.possible++;
+    else tierCounts.weak++;
+  });
 
   const toggleSelect = async (c) => {
     await api.updateCandidate(c.id, { selected: !c.selected });
@@ -46,6 +53,16 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
 
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px 24px 120px" }}>
+      {scored.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 18, padding: "12px 16px", background: "var(--surface-raised)", borderRadius: "var(--radius-lg)", fontSize: 13 }}>
+          <span style={{ fontWeight: 500 }}>
+            {scored.length} of {candidates.length} candidate{candidates.length !== 1 ? "s" : ""} ranked
+          </span>
+          <span style={{ color: "var(--success)" }}>{tierCounts.strong} strong fit</span>
+          <span style={{ color: "var(--amber)" }}>{tierCounts.possible} possible fit</span>
+          <span style={{ color: "var(--rust)" }}>{tierCounts.weak} weak fit</span>
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {sorted.map((c) => {
           const tier = c.status === "done" ? tierFor(c.score) : null;

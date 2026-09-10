@@ -55,9 +55,15 @@ export function buildAnswerXml({ callId, wsUrl, statusCallbackUrl }) {
   //
   // The rate=16000 below must match PLIVO_STREAM_RATE in ws/callBridge.js — that's the rate
   // Gemini's 24kHz native audio output gets resampled down to before being sent back to Plivo.
+  //
+  // maxLength defaults to 60 seconds per Plivo's own docs — and unlike timeout/finishOnKey/
+  // playBeep, the docs never say it's ignored for recordSession="true". Recordings were being
+  // cut off at ~59s on calls that ran well past a minute, which matches that default exactly.
+  // Set it explicitly to the same ceiling as streamTimeout/<Wait> below so recording length is
+  // never the limiting factor before the call's own limits are.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Record recordSession="true" redirect="false" fileFormat="mp3"/>
+  <Record recordSession="true" maxLength="1800" redirect="false" fileFormat="mp3"/>
   <Stream bidirectional="true" keepCallAlive="true" streamTimeout="1800" contentType="audio/x-l16;rate=16000" statusCallbackUrl="${statusCallbackUrl}" statusCallbackMethod="POST">
     ${wsUrl}?callId=${encodeURIComponent(callId)}
   </Stream>

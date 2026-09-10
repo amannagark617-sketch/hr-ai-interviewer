@@ -47,6 +47,11 @@ const HEADERS = [
   // this label automatically). If you already have data in this sheet, add "Role" yourself as
   // the header of the next empty column, so it lines up with the value this column now writes.
   "Role",
+  // Same append-at-the-end rule as "Role" above. Filled in only when the candidate asked to be
+  // called back later instead of doing the interview (Call status reads "callback requested" on
+  // that row) — the app auto-places the follow-up call once this time arrives.
+  "Callback requested for",
+  "Callback note",
 ];
 
 function doPost(e) {
@@ -87,6 +92,8 @@ function doPost(e) {
       row.interviewSummary || "",
       new Date().toISOString(),
       row.role || "",
+      row.callbackScheduledFor || "",
+      row.callbackNote || "",
     ]);
 
     return jsonResponse({ ok: true, resumeUrl });

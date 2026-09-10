@@ -367,6 +367,7 @@ function DetailPanel({ row }) {
   const concerns = splitList(row["Interview concerns"]);
   const resumeLink = row["Resume (Drive link)"];
   const recordingUrl = row["Recording URL"];
+  const callbackFor = row["Callback requested for"];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 760 }}>
@@ -377,6 +378,16 @@ function DetailPanel({ row }) {
           </a>
         )}
       </div>
+
+      {callbackFor && (
+        <div>
+          <div style={{ ...detailLabelStyle, color: "var(--amber)" }}>Callback requested</div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>
+            Asked to be called back on <strong>{callbackFor}</strong>
+            {row["Callback note"] ? ` — ${row["Callback note"]}` : ""}
+          </div>
+        </div>
+      )}
 
       {row["Resume verdict"] && (
         <div>
@@ -441,7 +452,8 @@ function DetailPanel({ row }) {
         </div>
       )}
 
-      {!row["Resume verdict"] &&
+      {!callbackFor &&
+        !row["Resume verdict"] &&
         resumePros.length === 0 &&
         resumeCons.length === 0 &&
         !row["Interview summary"] &&

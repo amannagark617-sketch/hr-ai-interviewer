@@ -9,6 +9,7 @@ import { callsRouter } from "./routes/calls.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { attachCallBridge } from "./ws/callBridge.js";
+import { startCallbackScheduler } from "./services/callbackScheduler.js";
 
 const app = express();
 app.use(cors());
@@ -26,6 +27,7 @@ app.use("/api/dashboard", dashboardRouter);
 
 const server = http.createServer(app);
 attachCallBridge(server);
+startCallbackScheduler();
 
 server.listen(config.port, () => {
   console.log(`API listening on http://localhost:${config.port}`);

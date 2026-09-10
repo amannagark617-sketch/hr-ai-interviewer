@@ -96,13 +96,28 @@ webhooksRouter.post("/hangup", async (req, res) => {
     latestCall = store.getCall(callId) || latestCall;
   }
 
+  // Re-fetch — request_callback (see ws/callBridge.js) sets this on the candidate mid-call, and
+  // this handler only runs once the call has actually ended, so it's reliably up to date. Only
+  // "pending" means a fresh callback request came in during THIS call: the scheduler flips it to
+  // "triggered" the instant it re-dials, before the new call even connects, so "pending" can never
+  // just be a leftover from some earlier, already-handled request.
+  const latestCandidate = store.getCandidate(call.candidateId) || candidate;
+  const callbackRequested = latestCandidate?.callbackStatus === "pending";
+
   let interviewScore = null;
   let recommendation = null;
   let summary = "";
   let interviewStrengths = [];
   let interviewConcerns = [];
 
-  if (latestCall.transcript?.trim()) {
+  if (callbackRequested) {
+    // No real interview happened — scoring a "sorry, can't talk now" exchange as if it were one
+    // would produce a meaningless low score/reject. Nothing to compute; the callback fields below
+    // carry the actual outcome of this call instead.
+    console.log(
+      `[webhooks/hangup] Call ${callId}: candidate asked to be called back at ${latestCandidate.callbackScheduledFor} — skipping scoring.`
+    );
+  } else if (latestCall.transcript?.trim()) {
     try {
       const scored = await scoreInterviewTranscript(jobDescription, latestCall.transcript, candidate?.name || "Candidate", customQuestions);
       interviewScore = scored.score;
@@ -148,7 +163,7 @@ webhooksRouter.post("/hangup", async (req, res) => {
         resumeFileBase64: candidate?.resumeFile?.base64 || "",
         resumeFileName: candidate?.resumeFile?.filename || "",
         resumeMimeType: candidate?.resumeFile?.mimeType || "",
-        callStatus: "completed",
+        callStatus: callbackRequested ? "callback requested" : "completed",
         callDurationSeconds: durationSeconds,
         interviewScore,
         recommendation,
@@ -156,6 +171,8 @@ webhooksRouter.post("/hangup", async (req, res) => {
         interviewConcerns,
         recordingUrl,
         interviewSummary: summary,
+        callbackScheduledFor: callbackRequested ? latestCandidate.callbackScheduledFor : "",
+        callbackNote: callbackRequested ? latestCandidate.callbackNote || "" : "",
       });
       console.log(`[webhooks/hangup] Call ${callId} logged to Google Sheets.`);
     } catch (err) {

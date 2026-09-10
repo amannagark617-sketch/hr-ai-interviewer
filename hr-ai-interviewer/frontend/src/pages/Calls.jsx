@@ -8,11 +8,18 @@ const cardStyle = {
   padding: "14px 16px",
 };
 
+function formatCallbackTime(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }) + " IST";
+}
+
 function statusBadge(call) {
   if (call.status === "failed") return { label: "Failed", color: "var(--rust)", bg: "var(--rust-soft)" };
   if (call.status === "dialing") return { label: "Dialing...", color: "var(--faint)", bg: "var(--border-soft)" };
   if (call.status === "in-progress") return { label: "In progress", color: "var(--call)", bg: "var(--amber-soft)" };
   if (call.status === "completed") {
+    if (call.candidate?.callbackStatus === "pending") return { label: "Callback scheduled", color: "var(--call)", bg: "var(--amber-soft)" };
     if (call.recommendation === "advance") return { label: "Advance", color: "var(--success)", bg: "var(--success-soft)" };
     if (call.recommendation === "reject") return { label: "Reject", color: "var(--rust)", bg: "var(--rust-soft)" };
     if (call.recommendation === "hold") return { label: "Hold", color: "var(--amber)", bg: "var(--amber-soft)" };
@@ -79,6 +86,12 @@ export default function Calls() {
                 </div>
                 {call.summary && (
                   <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.6 }}>{call.summary}</div>
+                )}
+                {call.candidate?.callbackStatus === "pending" && call.candidate?.callbackScheduledFor && (
+                  <div style={{ fontSize: 13.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.6 }}>
+                    Asked to be called back <strong>{formatCallbackTime(call.candidate.callbackScheduledFor)}</strong>
+                    {call.candidate.callbackNote ? ` — ${call.candidate.callbackNote}` : ""}. We'll call automatically.
+                  </div>
                 )}
                 {call.recordingUrl && (
                   <div style={{ marginTop: 10 }}>

@@ -301,7 +301,7 @@ function DetailPanel({ row }) {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {resumeLink && (
           <a href={resumeLink} target="_blank" rel="noreferrer" style={linkPillStyle}>
-            📄 Open resume
+            Open resume
           </a>
         )}
       </div>

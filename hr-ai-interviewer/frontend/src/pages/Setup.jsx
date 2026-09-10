@@ -265,13 +265,13 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
           }}
         >
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
-            🚀 Quick Start: Try with Sample Data
+            Quick start: try with sample data
           </div>
           <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>
             Populate a Senior Full-Stack role with 3 diverse resumes to see Gemini AI screening in action.
           </div>
           <button onClick={loadSampleData} disabled={loadingSample} style={sampleBtnStyle}>
-            {loadingSample ? "Loading..." : "⚡ Load Sample Role & Candidates"}
+            {loadingSample ? "Loading..." : "Load sample role & candidates"}
           </button>
         </section>
       )}
@@ -300,7 +300,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
           />
           <span style={{ fontSize: 13, color: "var(--faint)" }}>or</span>
           <button onClick={() => setShowJdGenerator((v) => !v)} style={secondaryBtnStyle}>
-            ✨ Generate with AI
+            Generate with AI
           </button>
         </div>
 

@@ -38,8 +38,6 @@ export default function App() {
   const [rankError, setRankError] = useState("");
   const [roles, setRoles] = useState([]);
   const [activeRoleId, setActiveRoleId] = useState(null);
-  const [addingRole, setAddingRole] = useState(false);
-  const [newRoleTitle, setNewRoleTitle] = useState("");
   const [roleError, setRoleError] = useState("");
 
   const refreshCandidates = useCallback(async () => {
@@ -87,13 +85,12 @@ export default function App() {
     }
   };
 
+  // No name to type — a role is auto-named off its job description the moment one is saved (see
+  // the backend's store.setJobDescription), so starting a new hiring round is a single click.
   const addRole = async () => {
-    if (!newRoleTitle.trim()) return;
     setRoleError("");
     try {
-      const { role } = await api.createRole(newRoleTitle.trim());
-      setNewRoleTitle("");
-      setAddingRole(false);
+      const { role } = await api.createRole();
       await refreshRoles();
       setActiveRoleId(role.id);
       setStep("setup");
@@ -169,31 +166,10 @@ export default function App() {
             ))}
           </select>
 
-          {addingRole ? (
-            <>
-              <input
-                autoFocus
-                value={newRoleTitle}
-                onChange={(e) => setNewRoleTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addRole();
-                  if (e.key === "Escape") { setAddingRole(false); setNewRoleTitle(""); }
-                }}
-                placeholder="e.g. Data Analyst"
-                style={{ fontSize: 13, padding: "5px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)", width: 160 }}
-              />
-              <button onClick={addRole} disabled={!newRoleTitle.trim()} style={{ fontSize: 12.5, fontWeight: 500, padding: "5px 12px", borderRadius: "var(--radius-sm)", border: "none", background: "var(--accent)", color: "var(--bg)", cursor: "pointer" }}>
-                Add
-              </button>
-              <button onClick={() => { setAddingRole(false); setNewRoleTitle(""); }} style={{ fontSize: 12.5, padding: "5px 10px", border: "none", background: "transparent", color: "var(--muted)", cursor: "pointer" }}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setAddingRole(true)} style={{ fontSize: 12.5, fontWeight: 500, padding: "5px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)", cursor: "pointer" }}>
-              New role
-            </button>
-          )}
+          <button onClick={addRole} style={{ fontSize: 12.5, fontWeight: 500, padding: "5px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)", cursor: "pointer" }}>
+            New role
+          </button>
+          <span style={{ fontSize: 12, color: "var(--faint)" }}>— named automatically from its job description</span>
 
           {roleError && <span style={{ fontSize: 12.5, color: "var(--rust)" }}>{roleError}</span>}
         </div>
@@ -206,7 +182,7 @@ export default function App() {
       )}
 
       {step === "setup" && (
-        <Setup jd={jd} setJd={setJd} candidates={candidates} refreshCandidates={refreshCandidates} onRank={onRank} />
+        <Setup jd={jd} setJd={setJd} candidates={candidates} refreshCandidates={refreshCandidates} refreshRoles={refreshRoles} onRank={onRank} />
       )}
       {step === "results" && (
         <Results candidates={candidates} refreshCandidates={refreshCandidates} onCallsTriggered={() => setStep("calls")} />

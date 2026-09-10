@@ -22,7 +22,8 @@ export const api = {
   // and candidates). One is "active" at a time; every other endpoint below implicitly operates
   // on whichever role is currently active.
   listRoles: () => request("/roles"),
-  createRole: (title) => request("/roles", { method: "POST", body: JSON.stringify({ title }) }),
+  // No name needed — the backend auto-names a role off its job description the moment one is set.
+  createRole: () => request("/roles", { method: "POST", body: JSON.stringify({}) }),
   setActiveRole: (roleId) => request("/roles/active", { method: "PUT", body: JSON.stringify({ roleId }) }),
   renameRole: (id, title) => request(`/roles/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
   removeRole: (id) => request(`/roles/${id}`, { method: "DELETE" }),

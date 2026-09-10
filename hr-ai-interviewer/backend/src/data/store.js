@@ -3,16 +3,22 @@
 // once you're past prototyping — the interface (the exported functions) is what matters,
 // keep it stable and the rest of the app doesn't need to change.
 
+import { deriveRoleTitleFromJobDescription } from "../services/roleTitle.js";
+
 const roles = new Map(); // id -> { id, title, jobDescription, customQuestions, createdAt }
 const candidates = new Map(); // id -> candidate (each carries roleId — which role it was added under)
 const calls = new Map(); // callId -> call job
+
+// Sentinel for "this role has never had a title set" — see setJobDescription below, which is what
+// actually names a role (auto-derived from the job description itself, never typed by hand).
+export const DEFAULT_ROLE_TITLE = "Untitled role";
 
 // Bootstrap one role so the app is immediately usable exactly like before roles existed — HR
 // isn't forced to "create a role" as an extra first step before pasting a job description.
 const DEFAULT_ROLE_ID = "default";
 roles.set(DEFAULT_ROLE_ID, {
   id: DEFAULT_ROLE_ID,
-  title: "Untitled role",
+  title: DEFAULT_ROLE_TITLE,
   jobDescription: "",
   customQuestions: "",
   createdAt: new Date().toISOString(),
@@ -62,9 +68,19 @@ export const store = {
   getJobDescription() {
     return roles.get(activeRoleId)?.jobDescription || "";
   },
+  // Also names the role the first time it gets a job description — HR should never have to type a
+  // role name that's just going to duplicate the title already sitting on line 1 of the JD. Only
+  // fires while the role is still untitled, so it never silently renames a role HR is actively
+  // reworking the JD for later on (that'd be surprising — the name is how they find it again in
+  // the role picker, so it needs to stay stable once set).
   setJobDescription(text) {
     const role = roles.get(activeRoleId);
-    if (role) role.jobDescription = text;
+    if (!role) return;
+    role.jobDescription = text;
+    if (role.title === DEFAULT_ROLE_TITLE) {
+      const derived = deriveRoleTitleFromJobDescription(text);
+      if (derived) role.title = derived;
+    }
   },
   getCustomQuestions() {
     return roles.get(activeRoleId)?.customQuestions || "";

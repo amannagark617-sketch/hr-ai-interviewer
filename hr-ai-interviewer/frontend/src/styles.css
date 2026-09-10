@@ -8,9 +8,14 @@
   --faint: #8E8E93;
   --border: #D9D9DE;
   --border-soft: #ECECEE;
-  --accent: #2B4C3F;
-  --accent-soft: #E7EEE9;
-  --accent-hover: #223D33;
+  /* Brand red, sampled from the Little Nap Recliners logo */
+  --accent: #D42027;
+  --accent-soft: #FBE7E7;
+  --accent-hover: #AE1A20;
+  /* Separate "positive signal" green so Strong fit / Advance never reads as the same red used
+     for Weak fit / Reject now that --accent carries the brand's red. */
+  --success: #2B7A4B;
+  --success-soft: #E5F2EA;
   --amber: #8A6417;
   --amber-soft: #F5EEDD;
   --rust: #9A4331;

@@ -13,7 +13,7 @@ function statusBadge(call) {
   if (call.status === "dialing") return { label: "Dialing...", color: "var(--faint)", bg: "var(--border-soft)" };
   if (call.status === "in-progress") return { label: "In progress", color: "var(--call)", bg: "var(--amber-soft)" };
   if (call.status === "completed") {
-    if (call.recommendation === "advance") return { label: "Advance", color: "var(--accent)", bg: "var(--accent-soft)" };
+    if (call.recommendation === "advance") return { label: "Advance", color: "var(--success)", bg: "var(--success-soft)" };
     if (call.recommendation === "reject") return { label: "Reject", color: "var(--rust)", bg: "var(--rust-soft)" };
     if (call.recommendation === "hold") return { label: "Hold", color: "var(--amber)", bg: "var(--amber-soft)" };
     return { label: "Completed", color: "var(--muted)", bg: "var(--border-soft)" };

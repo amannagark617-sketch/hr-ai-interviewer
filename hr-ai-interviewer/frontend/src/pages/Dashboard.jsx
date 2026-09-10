@@ -60,7 +60,7 @@ function average(values) {
 }
 
 const STATUS_COLORS = {
-  advance: { color: "var(--accent)", bg: "var(--accent-soft)", label: "Advance" },
+  advance: { color: "var(--success)", bg: "var(--success-soft)", label: "Advance" },
   hold: { color: "var(--amber)", bg: "var(--amber-soft)", label: "Hold" },
   reject: { color: "var(--rust)", bg: "var(--rust-soft)", label: "Reject" },
 };

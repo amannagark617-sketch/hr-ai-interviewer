@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { api } from "../api.js";
 
 function tierFor(score) {
-  if (score >= 75) return { label: "Strong fit", color: "var(--accent)", bg: "var(--accent-soft)" };
+  if (score >= 75) return { label: "Strong fit", color: "var(--success)", bg: "var(--success-soft)" };
   if (score >= 50) return { label: "Possible fit", color: "var(--amber)", bg: "var(--amber-soft)" };
   return { label: "Weak fit", color: "var(--rust)", bg: "var(--rust-soft)" };
 }
@@ -94,7 +94,7 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
               {isOpen && c.status === "done" && (
                 <div style={{ padding: "0 16px 18px 70px", display: "flex", gap: 32, borderTop: "1px solid var(--border-soft)" }}>
                   <div style={{ flex: 1, paddingTop: 14 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: "var(--accent)", marginBottom: 6 }}>Pros</div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: "var(--success)", marginBottom: 6 }}>Pros</div>
                     <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.7 }}>
                       {(c.pros || []).map((p, i) => <li key={i}>{p}</li>)}
                     </ul>

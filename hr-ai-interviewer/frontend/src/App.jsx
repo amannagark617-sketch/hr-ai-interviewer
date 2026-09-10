@@ -31,21 +31,26 @@ const tabStyle = (active) => ({
   boxShadow: active ? "0 1px 3px rgba(33,31,28,0.08)" : "none",
 });
 
-// Placeholder mark for the Little Nap Recliners brand — a crescent tucked over a cushion,
-// standing in for the real logo (https://s3.eu-central-1.wasabisys.com/... — unreachable from
-// this environment's network egress policy) until that asset is dropped into frontend/public/.
+// Recreation of the Little Nap Recliners mark — a red rounded square with a white reclining-
+// chair silhouette (headrest sweeping down through the seat into an extended footrest), plus
+// its stitch-line accent. Hand-drawn from the logo shared in chat: it only reached this session
+// as an inline image, never as a file on disk, so there was no source asset to copy byte-for-byte
+// — swap this for an <img src="/logo.png"> once the real file lands in frontend/public/.
 function BrandMark({ size = 34 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 34 34" fill="none" aria-hidden="true">
-      <rect width="34" height="34" rx="10" fill="var(--accent)" />
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <rect width="64" height="64" rx="16" fill="var(--accent)" />
       <path
-        d="M20.5 9.5a6.2 6.2 0 1 0 5.2 9.6 7.6 7.6 0 0 1-5.2-9.6Z"
+        d="M31 18c4 0 2.5 8 8 11.5c6.5 4 14.5 2 19.5 9c2.5 3.5-1 7-6 6.5
+           c-9-1-19-6-25-13.5c-5-6-10.5-9-8-15c1-2.5 6-2.5 11.5 1.5Z"
         fill="var(--bg)"
       />
       <path
-        d="M8 23.5c0-2 1.8-3.2 4-3.2h10c2.2 0 4 1.2 4 3.2 0 .8-.7 1.3-1.5 1.3h-15c-.8 0-1.5-.5-1.5-1.3Z"
-        fill="var(--bg)"
-        opacity="0.85"
+        d="M27 33c6 6.5 15 11 23 12.5"
+        stroke="var(--accent)"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        opacity="0.55"
       />
     </svg>
   );
@@ -102,7 +107,9 @@ export default function App() {
           )}
           <BrandMark />
           <div>
-            <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>Little Nap Recliners</div>
+            <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>
+              Little <span style={{ color: "var(--accent)" }}>Nap</span> Recliners
+            </div>
             <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Smart Hiring Assistant</div>
           </div>
         </div>

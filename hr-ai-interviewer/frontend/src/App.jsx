@@ -31,31 +31,6 @@ const tabStyle = (active) => ({
   boxShadow: active ? "0 1px 3px rgba(33,31,28,0.08)" : "none",
 });
 
-// Recreation of the Little Nap Recliners mark — a red rounded square with a white reclining-
-// chair silhouette (headrest sweeping down through the seat into an extended footrest), plus
-// its stitch-line accent. Hand-drawn from the logo shared in chat: it only reached this session
-// as an inline image, never as a file on disk, so there was no source asset to copy byte-for-byte
-// — swap this for an <img src="/logo.png"> once the real file lands in frontend/public/.
-function BrandMark({ size = 34 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="var(--accent)" />
-      <path
-        d="M31 18c4 0 2.5 8 8 11.5c6.5 4 14.5 2 19.5 9c2.5 3.5-1 7-6 6.5
-           c-9-1-19-6-25-13.5c-5-6-10.5-9-8-15c1-2.5 6-2.5 11.5 1.5Z"
-        fill="var(--bg)"
-      />
-      <path
-        d="M27 33c6 6.5 15 11 23 12.5"
-        stroke="var(--accent)"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        opacity="0.55"
-      />
-    </svg>
-  );
-}
-
 export default function App() {
   const [step, setStep] = useState("setup"); // "setup" | "results" | "calls" | "dashboard"
   const [jd, setJd] = useState("");
@@ -157,7 +132,13 @@ export default function App() {
               ←
             </button>
           )}
-          <BrandMark />
+          <img
+            src="/logo.png"
+            alt="Little Nap Recliners"
+            width={34}
+            height={34}
+            style={{ borderRadius: "var(--radius-sm)", objectFit: "contain", flexShrink: 0 }}
+          />
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>
               Little <span style={{ color: "var(--accent)" }}>Nap</span> Recliners

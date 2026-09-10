@@ -16,7 +16,10 @@ rankingRouter.post("/", async (req, res) => {
   const jobDescription = store.getJobDescription();
   if (!jobDescription) return res.status(400).json({ error: "Set a job description first" });
 
-  const pending = store.listCandidates().filter((c) => c.status === "pending" || c.status === "error");
+  const activeRoleId = store.getActiveRoleId();
+  const pending = store
+    .listCandidates()
+    .filter((c) => c.roleId === activeRoleId && (c.status === "pending" || c.status === "error"));
   if (pending.length === 0) return res.json({ scored: [] });
 
   pending.forEach((c) => store.updateCandidate(c.id, { status: "scoring" }));

@@ -45,8 +45,12 @@ webhooksRouter.post("/hangup", async (req, res) => {
 
   if (!call) return;
   const candidate = store.getCandidate(call.candidateId);
-  const jobDescription = store.getJobDescription();
-  const customQuestions = store.getCustomQuestions();
+  // Resolved via the candidate's own role — see the matching comment in callBridge.js. Scoring
+  // must grade against the job description this candidate was actually interviewed for, not
+  // whatever role HR happens to have selected by the time this webhook fires.
+  const role = store.getRole(candidate?.roleId);
+  const jobDescription = role?.jobDescription || "";
+  const customQuestions = role?.customQuestions || "";
 
   // Duration was previously computed as Date.now() - answeredAt at the BOTTOM of this handler —
   // after the recording fetch, the transcript-wait retry loop, and the Gemini scoring call had
@@ -128,6 +132,7 @@ webhooksRouter.post("/hangup", async (req, res) => {
     try {
       await appendCallResultRow({
         candidateName: candidate?.name || "Unknown",
+        role: role?.title || "",
         phone: candidate?.phone || "",
         resumeScore: candidate?.score,
         resumeVerdict: candidate?.verdict,

@@ -99,6 +99,7 @@ const tileStyle = {
 
 const columns = [
   { key: "Candidate", label: "Candidate" },
+  { key: "Role", label: "Role" },
   { key: "Phone", label: "Phone" },
   { key: "Resume score", label: "Resume" },
   { key: "Call status", label: "Call status" },
@@ -108,12 +109,30 @@ const columns = [
   { key: "Logged at", label: "Logged at" },
 ];
 
+// Per-role funnel: candidates logged, calls completed, and the advance/hold/reject split for
+// each role, so you can see e.g. "Data Analyst: 20 logged, 10 advanced" at a glance instead of
+// only the lumped-together overall numbers.
+function summarizeByRole(rows) {
+  const byRole = new Map();
+  for (const r of rows) {
+    const role = r["Role"] || "(no role)";
+    if (!byRole.has(role)) byRole.set(role, { role, total: 0, completed: 0, advance: 0, hold: 0, reject: 0 });
+    const s = byRole.get(role);
+    s.total++;
+    if (r["Call status"] === "completed") s.completed++;
+    const rec = (r["Recommendation"] || "").toLowerCase();
+    if (s[rec] != null) s[rec]++;
+  }
+  return Array.from(byRole.values()).sort((a, b) => b.total - a.total);
+}
+
 export default function Dashboard() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [notConfigured, setNotConfigured] = useState(false);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [roleFilter, setRoleFilter] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -152,27 +171,44 @@ export default function Dashboard() {
     );
   }
 
-  const total = rows?.length || 0;
-  const completed = rows?.filter((r) => r["Call status"] === "completed").length || 0;
+  const roleSummaries = rows ? summarizeByRole(rows) : [];
+  const filteredRows = roleFilter ? rows?.filter((r) => (r["Role"] || "(no role)") === roleFilter) : rows;
+
+  const total = filteredRows?.length || 0;
+  const completed = filteredRows?.filter((r) => r["Call status"] === "completed").length || 0;
   const counts = { advance: 0, hold: 0, reject: 0 };
-  rows?.forEach((r) => {
+  filteredRows?.forEach((r) => {
     const rec = (r["Recommendation"] || "").toLowerCase();
     if (counts[rec] != null) counts[rec]++;
   });
   const maxCount = Math.max(1, ...Object.values(counts));
-  const avgResumeScore = rows ? average(rows.map((r) => r["Resume score"])) : null;
-  const avgInterviewScore = rows ? average(rows.map((r) => r["Interview score"])) : null;
-  const avgCallDurationSeconds = rows
-    ? average(rows.map((r) => parseDuration(r["Call duration"])).filter((s) => s != null))
+  const avgResumeScore = filteredRows ? average(filteredRows.map((r) => r["Resume score"])) : null;
+  const avgInterviewScore = filteredRows ? average(filteredRows.map((r) => r["Interview score"])) : null;
+  const avgCallDurationSeconds = filteredRows
+    ? average(filteredRows.map((r) => parseDuration(r["Call duration"])).filter((s) => s != null))
     : null;
 
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "32px 24px 80px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <label style={labelStyle}>Overview</label>
-        <button onClick={load} disabled={loading} style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 13, cursor: "pointer" }}>
-          {loading ? "Refreshing..." : "↻ Refresh"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {roleSummaries.length > 1 && (
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              style={{ fontSize: 13, padding: "5px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)" }}
+            >
+              <option value="">All roles</option>
+              {roleSummaries.map((s) => (
+                <option key={s.role} value={s.role}>{s.role}</option>
+              ))}
+            </select>
+          )}
+          <button onClick={load} disabled={loading} style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 13, cursor: "pointer" }}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {error && <div style={{ fontSize: 13, color: "var(--rust)", marginBottom: 20 }}>{error}</div>}
@@ -228,6 +264,41 @@ export default function Dashboard() {
             </div>
           </section>
 
+          {roleSummaries.length > 1 && (
+            <section style={{ marginBottom: 32 }}>
+              <label style={labelStyle}>By role</label>
+              <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                      {["Role", "Logged", "Completed", "Advance", "Hold", "Reject"].map((h) => (
+                        <th key={h} style={{ textAlign: "left", padding: "10px 12px", color: "var(--faint)", fontWeight: 500, whiteSpace: "nowrap" }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roleSummaries.map((s) => (
+                      <tr
+                        key={s.role}
+                        onClick={() => setRoleFilter(roleFilter === s.role ? "" : s.role)}
+                        style={{ borderBottom: "1px solid var(--border-soft)", cursor: "pointer", background: roleFilter === s.role ? "var(--surface-raised)" : "transparent" }}
+                      >
+                        <td style={{ padding: "10px 12px", fontWeight: 500 }}>{s.role}</td>
+                        <td style={{ padding: "10px 12px" }}>{s.total}</td>
+                        <td style={{ padding: "10px 12px" }}>{s.completed}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--success)" }}>{s.advance}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--amber)" }}>{s.hold}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--rust)" }}>{s.reject}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
           <section>
             <label style={labelStyle}>
               All logged candidates <span style={{ fontWeight: 400, color: "var(--faint)" }}>— click a row for the full detail</span>
@@ -244,7 +315,7 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => {
+                  {filteredRows.map((r, i) => {
                     const isOpen = expanded === i;
                     return (
                       <React.Fragment key={i}>
@@ -253,6 +324,7 @@ export default function Dashboard() {
                           style={{ borderBottom: isOpen ? "none" : "1px solid var(--border-soft)", cursor: "pointer", background: isOpen ? "var(--surface-raised)" : "transparent" }}
                         >
                           <td style={{ padding: "10px 12px", fontWeight: 500 }}>{r["Candidate"]}</td>
+                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--muted)" }}>{r["Role"]}</td>
                           <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--muted)" }}>{r["Phone"]}</td>
                           <td style={{ padding: "10px 12px" }}>{r["Resume score"]}</td>
                           <td style={{ padding: "10px 12px", textTransform: "capitalize" }}>{r["Call status"]}</td>
@@ -271,7 +343,7 @@ export default function Dashboard() {
                       </React.Fragment>
                     );
                   })}
-                  {rows.length === 0 && (
+                  {filteredRows.length === 0 && (
                     <tr>
                       <td colSpan={columns.length} style={{ padding: "24px 12px", textAlign: "center", color: "var(--faint)" }}>
                         No rows logged yet.

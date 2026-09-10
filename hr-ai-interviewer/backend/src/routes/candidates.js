@@ -86,8 +86,11 @@ candidatesRouter.post("/custom-questions/upload", upload.single("customQuestions
   }
 });
 
+// Scoped to the active role — each role is its own hiring round, so candidates from other roles
+// (past or currently being worked on elsewhere) never show up while you're on this one.
 candidatesRouter.get("/", (req, res) => {
-  res.json({ candidates: store.listCandidates().map(sanitizeCandidate) });
+  const activeRoleId = store.getActiveRoleId();
+  res.json({ candidates: store.listCandidates().filter((c) => c.roleId === activeRoleId).map(sanitizeCandidate) });
 });
 
 // Add a candidate from pasted text (name + resume + optional phone).
@@ -98,6 +101,7 @@ candidatesRouter.post("/", (req, res) => {
   }
   const candidate = store.addCandidate({
     id: nanoid(),
+    roleId: store.getActiveRoleId(),
     name: name.trim(),
     phone: phone?.trim() || "",
     resumeText: resumeText.trim(),
@@ -124,6 +128,7 @@ candidatesRouter.post("/upload", upload.array("resumes", 50), async (req, res) =
       const details = extractCandidateDetails(text, file.originalname);
       const candidate = store.addCandidate({
         id: nanoid(),
+        roleId: store.getActiveRoleId(),
         name: details.name,
         phone: details.phone,
         resumeText: text,

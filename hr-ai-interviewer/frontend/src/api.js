@@ -18,6 +18,15 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // Roles — each is a self-contained hiring round (its own job description, custom questions,
+  // and candidates). One is "active" at a time; every other endpoint below implicitly operates
+  // on whichever role is currently active.
+  listRoles: () => request("/roles"),
+  createRole: (title) => request("/roles", { method: "POST", body: JSON.stringify({ title }) }),
+  setActiveRole: (roleId) => request("/roles/active", { method: "PUT", body: JSON.stringify({ roleId }) }),
+  renameRole: (id, title) => request(`/roles/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  removeRole: (id) => request(`/roles/${id}`, { method: "DELETE" }),
+
   getJobDescription: () => request("/candidates/job-description"),
   setJobDescription: (jobDescription) =>
     request("/candidates/job-description", { method: "PUT", body: JSON.stringify({ jobDescription }) }),

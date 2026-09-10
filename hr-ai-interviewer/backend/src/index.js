@@ -3,6 +3,7 @@ import cors from "cors";
 import http from "node:http";
 import { config } from "./config.js";
 import { candidatesRouter } from "./routes/candidates.js";
+import { rolesRouter } from "./routes/roles.js";
 import { rankingRouter } from "./routes/ranking.js";
 import { callsRouter } from "./routes/calls.js";
 import { webhooksRouter } from "./routes/webhooks.js";
@@ -17,6 +18,7 @@ app.use(express.urlencoded({ extended: true })); // Plivo posts webhook bodies a
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 app.use("/api/candidates", candidatesRouter);
+app.use("/api/roles", rolesRouter);
 app.use("/api/rank", rankingRouter);
 app.use("/api/calls", callsRouter);
 app.use("/api/webhooks", webhooksRouter);

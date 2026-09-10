@@ -222,8 +222,13 @@ export function attachCallBridge(httpServer) {
     console.log(`[callBridge] Plivo media stream connected for call ${callId}`);
 
     const candidate = store.getCandidate(call.candidateId);
-    const jobDescription = store.getJobDescription();
-    const customQuestions = store.getCustomQuestions();
+    // Resolved via the candidate's own role, NOT store.getJobDescription()/getCustomQuestions()
+    // (which track whichever role is currently active in the UI) — a call can still be ringing
+    // after HR has switched to a different role, and it must keep using the role it was actually
+    // placed for.
+    const role = store.getRole(candidate?.roleId);
+    const jobDescription = role?.jobDescription || "";
+    const customQuestions = role?.customQuestions || "";
     const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId, customQuestions);
     let transcript = "";
     let setupComplete = false;

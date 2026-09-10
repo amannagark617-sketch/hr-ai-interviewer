@@ -15,11 +15,14 @@ function sanitizeCandidate(candidate) {
   return rest;
 }
 
+// Scoped to the active role, same as GET /candidates — a call belongs to whichever role its
+// candidate was added under, which doesn't change even if the active role is switched later.
 callsRouter.get("/", (req, res) => {
-  const calls = store.listCalls().map((call) => ({
-    ...call,
-    candidate: sanitizeCandidate(store.getCandidate(call.candidateId)),
-  }));
+  const activeRoleId = store.getActiveRoleId();
+  const calls = store
+    .listCalls()
+    .map((call) => ({ ...call, candidate: sanitizeCandidate(store.getCandidate(call.candidateId)) }))
+    .filter((call) => call.candidate?.roleId === activeRoleId);
   res.json({ calls });
 });
 

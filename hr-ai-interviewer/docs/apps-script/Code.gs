@@ -40,6 +40,13 @@ const HEADERS = [
   "Recording URL",
   "Interview summary",
   "Logged at",
+  // Added after the app gained multi-role support — appended at the END rather than inserted
+  // next to "Candidate" so existing rows in an already-deployed sheet keep every column they
+  // already have correctly aligned (appendRow always appends a NEW row; it never rewrites the
+  // header row of a sheet that already has one, so an existing sheet's header row won't pick up
+  // this label automatically). If you already have data in this sheet, add "Role" yourself as
+  // the header of the next empty column, so it lines up with the value this column now writes.
+  "Role",
 ];
 
 function doPost(e) {
@@ -79,6 +86,7 @@ function doPost(e) {
       row.recordingUrl || "",
       row.interviewSummary || "",
       new Date().toISOString(),
+      row.role || "",
     ]);
 
     return jsonResponse({ ok: true, resumeUrl });

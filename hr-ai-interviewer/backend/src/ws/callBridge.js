@@ -155,14 +155,6 @@ export function attachCallBridge(httpServer) {
     let loggedAudioFormat = false;
     let audioChunkIndex = 0;
     const bridgeStartedAt = Date.now();
-    // Paces outgoing audio to roughly real-time instead of forwarding every chunk the instant it
-    // arrives. Gemini can generate audio faster than real-time; blasting all of it at Plivo
-    // immediately lets a backlog build up that Plivo's playback can't keep pace with — a real
-    // test call showed the first ~2s playing fine, then collapsing into slow, garbled audio,
-    // which matches a growing backlog far better than a flat rate mismatch would (that would
-    // sound wrong from the very first frame, not degrade over time).
-    let nextSendAt = Date.now();
-
     geminiSocket.on("message", (raw) => {
       let msg;
       try {
@@ -191,12 +183,7 @@ export function attachCallBridge(httpServer) {
         // documented "clear the playback queue" event for Plivo streams, so the best we can do here
         // is stop forwarding further audio for this turn; verify against a live test call whether
         // any perceptible overlap remains.
-        if (msg?.serverContent?.interrupted) {
-          // Drop any backlog scheduled for a turn that's no longer relevant instead of letting
-          // stale audio keep draining out (and delaying) after the candidate started talking.
-          nextSendAt = Date.now();
-          return;
-        }
+        if (msg?.serverContent?.interrupted) return;
 
         // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
         // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
@@ -214,17 +201,20 @@ export function attachCallBridge(httpServer) {
           const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_STREAM_RATE);
           const outputSamples = Buffer.byteLength(resampled, "base64") / 2;
 
-          // Every fix so far in this audio pipeline checked out correct in isolation
-          // (rate detection, resample math, pacing math) yet the live "fine for ~2s then
-          // collapses into a slow growl" symptom hasn't budged — meaning the real chunk
-          // pattern Gemini actually sends (sizes, frequency, timing) is something we've been
-          // reasoning about, not seeing. Log the first 40 chunks in full so the next test call
-          // shows that pattern directly instead of guessing at it again.
+          // Diagnostic evidence from a real call proved artificially pacing these sends (holding
+          // each chunk back with setTimeout to space them at real-time intervals) was the actual
+          // bug: Gemini generates audio roughly 5x faster than real-time, so the pacing backlog
+          // grew unbounded (7+ seconds and climbing within the first few seconds of a call).
+          // Starving Plivo's playback of chunks it needs right now, then dumping a delayed
+          // backlog, is exactly what produces "fine for ~2s, then a slow, pitch-dropped growl" —
+          // that's the signature of a playback engine time-stretching to cover a buffer
+          // underrun. Send every chunk immediately; Plivo is a telephony platform built to
+          // receive and buffer a live PCM stream in real time on its own end.
           if (audioChunkIndex < 40) {
             console.log(
               `[callBridge] audio chunk #${audioChunkIndex} call=${callId} t=${Date.now() - bridgeStartedAt}ms ` +
                 `inputBytes=${Buffer.byteLength(audioPart.inlineData.data, "base64")} inputSamples=${inputSamples} sourceRate=${sourceRate} ` +
-                `outputSamples=${outputSamples} durationMs=${durationMs.toFixed(1)} nextSendAt-now=${nextSendAt - Date.now()}ms`
+                `outputSamples=${outputSamples} durationMs=${durationMs.toFixed(1)}`
             );
           }
           audioChunkIndex++;
@@ -232,27 +222,16 @@ export function attachCallBridge(httpServer) {
           // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
           // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
           // contentType attribute, not here — and sampleRate is a string, not a number.
-          const sendFrame = () => {
-            if (plivoSocket.readyState === WebSocket.OPEN) {
-              plivoSocket.send(
-                JSON.stringify({
-                  event: "playAudio",
-                  media: {
-                    contentType: "audio/x-l16",
-                    sampleRate: String(PLIVO_STREAM_RATE),
-                    payload: resampled,
-                  },
-                })
-              );
-            }
-          };
-
-          const now = Date.now();
-          const sendAt = Math.max(now, nextSendAt);
-          nextSendAt = sendAt + durationMs;
-          const delay = sendAt - now;
-          if (delay > 0) setTimeout(sendFrame, delay);
-          else sendFrame();
+          plivoSocket.send(
+            JSON.stringify({
+              event: "playAudio",
+              media: {
+                contentType: "audio/x-l16",
+                sampleRate: String(PLIVO_STREAM_RATE),
+                payload: resampled,
+              },
+            })
+          );
         }
 
         // Transcription text, surfaced because inputAudioTranscription/outputAudioTranscription are

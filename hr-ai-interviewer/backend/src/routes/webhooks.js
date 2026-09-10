@@ -45,7 +45,27 @@ webhooksRouter.post("/hangup", async (req, res) => {
 
   if (!call) return;
   const candidate = store.getCandidate(call.candidateId);
-  const jobDescription = store.getJobDescription();
+  // Resolved via the candidate's own role — see the matching comment in callBridge.js. Scoring
+  // must grade against the job description this candidate was actually interviewed for, not
+  // whatever role HR happens to have selected by the time this webhook fires.
+  const role = store.getRole(candidate?.roleId);
+  const jobDescription = role?.jobDescription || "";
+  const customQuestions = role?.customQuestions || "";
+
+  // Duration was previously computed as Date.now() - answeredAt at the BOTTOM of this handler —
+  // after the recording fetch, the transcript-wait retry loop, and the Gemini scoring call had
+  // all already run, so "now" was however long those took (seconds to tens of seconds) after the
+  // call actually ended, not at hangup. Plivo's own hangup callback carries the real duration it
+  // measured (Duration, seconds, falling back to BillDuration) — that's ground truth from the
+  // call itself, immune to any lag or bug in our own answeredAt bookkeeping, so prefer it and only
+  // fall back to our own estimate — captured right here, before any of those delays — if Plivo
+  // didn't send one.
+  const plivoDuration = Number(req.body.Duration ?? req.body.BillDuration ?? req.body.duration ?? req.body.bill_duration);
+  const selfEstimatedDuration = call.answeredAt ? Math.round((Date.now() - new Date(call.answeredAt).getTime()) / 1000) : null;
+  const durationSeconds = Number.isFinite(plivoDuration) && plivoDuration >= 0 ? plivoDuration : selfEstimatedDuration;
+  console.log(
+    `[webhooks/hangup] Call ${callId} duration: Plivo reported Duration=${req.body.Duration} BillDuration=${req.body.BillDuration}, our own estimate=${selfEstimatedDuration}s, using ${durationSeconds}s`
+  );
 
   store.updateCall(callId, { status: "completed" });
 
@@ -76,15 +96,30 @@ webhooksRouter.post("/hangup", async (req, res) => {
     latestCall = store.getCall(callId) || latestCall;
   }
 
+  // Re-fetch — request_callback (see ws/callBridge.js) sets this on the candidate mid-call, and
+  // this handler only runs once the call has actually ended, so it's reliably up to date. Only
+  // "pending" means a fresh callback request came in during THIS call: the scheduler flips it to
+  // "triggered" the instant it re-dials, before the new call even connects, so "pending" can never
+  // just be a leftover from some earlier, already-handled request.
+  const latestCandidate = store.getCandidate(call.candidateId) || candidate;
+  const callbackRequested = latestCandidate?.callbackStatus === "pending";
+
   let interviewScore = null;
   let recommendation = null;
   let summary = "";
   let interviewStrengths = [];
   let interviewConcerns = [];
 
-  if (latestCall.transcript?.trim()) {
+  if (callbackRequested) {
+    // No real interview happened — scoring a "sorry, can't talk now" exchange as if it were one
+    // would produce a meaningless low score/reject. Nothing to compute; the callback fields below
+    // carry the actual outcome of this call instead.
+    console.log(
+      `[webhooks/hangup] Call ${callId}: candidate asked to be called back at ${latestCandidate.callbackScheduledFor} — skipping scoring.`
+    );
+  } else if (latestCall.transcript?.trim()) {
     try {
-      const scored = await scoreInterviewTranscript(jobDescription, latestCall.transcript, candidate?.name || "Candidate");
+      const scored = await scoreInterviewTranscript(jobDescription, latestCall.transcript, candidate?.name || "Candidate", customQuestions);
       interviewScore = scored.score;
       recommendation = scored.recommendation;
       summary = scored.summary;
@@ -97,8 +132,6 @@ webhooksRouter.post("/hangup", async (req, res) => {
   } else {
     console.error(`[webhooks/hangup] Call ${callId} has no transcript after retrying — skipping post-call scoring. Either the call had no audible speech, or the WS bridge never persisted one.`);
   }
-
-  const durationSeconds = call.answeredAt ? Math.round((Date.now() - new Date(call.answeredAt).getTime()) / 1000) : null;
 
   store.updateCall(callId, {
     recordingUrl,
@@ -114,6 +147,7 @@ webhooksRouter.post("/hangup", async (req, res) => {
     try {
       await appendCallResultRow({
         candidateName: candidate?.name || "Unknown",
+        role: role?.title || "",
         phone: candidate?.phone || "",
         resumeScore: candidate?.score,
         resumeVerdict: candidate?.verdict,
@@ -122,8 +156,14 @@ webhooksRouter.post("/hangup", async (req, res) => {
         // Sent raw so Code.gs can save it as a Drive file and link it from the row — keeps this
         // app's "no service account" design (Apps Script already runs as the sheet owner's own
         // Google identity, so it can write to that same account's Drive with no new credentials).
+        // resumeFile (the exact original upload) is preferred when present; Code.gs falls back to
+        // saving resumeText as a plain-text file for candidates added by pasting text directly,
+        // which never had an original file to begin with.
         resumeText: candidate?.resumeText || "",
-        callStatus: "completed",
+        resumeFileBase64: candidate?.resumeFile?.base64 || "",
+        resumeFileName: candidate?.resumeFile?.filename || "",
+        resumeMimeType: candidate?.resumeFile?.mimeType || "",
+        callStatus: callbackRequested ? "callback requested" : "completed",
         callDurationSeconds: durationSeconds,
         interviewScore,
         recommendation,
@@ -131,6 +171,8 @@ webhooksRouter.post("/hangup", async (req, res) => {
         interviewConcerns,
         recordingUrl,
         interviewSummary: summary,
+        callbackScheduledFor: callbackRequested ? latestCandidate.callbackScheduledFor : "",
+        callbackNote: callbackRequested ? latestCandidate.callbackNote || "" : "",
       });
       console.log(`[webhooks/hangup] Call ${callId} logged to Google Sheets.`);
     } catch (err) {

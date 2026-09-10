@@ -8,6 +8,15 @@ import { generateJobDescription } from "../services/geminiService.js";
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 export const candidatesRouter = Router();
 
+// The candidate record keeps the original resume file (base64) server-side so Sheets logging can
+// upload the exact file to Drive — but that's easily hundreds of KB per candidate, and the
+// frontend polls GET / every 1.5s while candidates are scoring. Never let resumeFile reach the
+// browser, or every poll re-downloads every resume file all over again.
+function sanitizeCandidate(candidate) {
+  const { resumeFile, ...rest } = candidate;
+  return rest;
+}
+
 candidatesRouter.get("/job-description", (req, res) => {
   res.json({ jobDescription: store.getJobDescription() });
 });
@@ -50,8 +59,38 @@ candidatesRouter.post("/job-description/upload", upload.single("jobDescription")
   }
 });
 
+// Optional mandatory questions HR wants asked on top of the usual JD/resume-grounded ones —
+// same shape as the job description endpoints above (get/set/upload).
+candidatesRouter.get("/custom-questions", (req, res) => {
+  res.json({ customQuestions: store.getCustomQuestions() });
+});
+
+candidatesRouter.put("/custom-questions", (req, res) => {
+  const { customQuestions } = req.body;
+  if (typeof customQuestions !== "string") {
+    return res.status(400).json({ error: "customQuestions is required" });
+  }
+  store.setCustomQuestions(customQuestions.trim());
+  res.json({ ok: true });
+});
+
+candidatesRouter.post("/custom-questions/upload", upload.single("customQuestions"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  try {
+    const text = await extractResumeText(req.file.buffer, req.file.originalname);
+    if (!text.trim()) return res.status(400).json({ error: "Couldn't find any text in that file" });
+    store.setCustomQuestions(text.trim());
+    res.json({ customQuestions: text.trim() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Scoped to the active role — each role is its own hiring round, so candidates from other roles
+// (past or currently being worked on elsewhere) never show up while you're on this one.
 candidatesRouter.get("/", (req, res) => {
-  res.json({ candidates: store.listCandidates() });
+  const activeRoleId = store.getActiveRoleId();
+  res.json({ candidates: store.listCandidates().filter((c) => c.roleId === activeRoleId).map(sanitizeCandidate) });
 });
 
 // Add a candidate from pasted text (name + resume + optional phone).
@@ -62,6 +101,7 @@ candidatesRouter.post("/", (req, res) => {
   }
   const candidate = store.addCandidate({
     id: nanoid(),
+    roleId: store.getActiveRoleId(),
     name: name.trim(),
     phone: phone?.trim() || "",
     resumeText: resumeText.trim(),
@@ -88,9 +128,13 @@ candidatesRouter.post("/upload", upload.array("resumes", 50), async (req, res) =
       const details = extractCandidateDetails(text, file.originalname);
       const candidate = store.addCandidate({
         id: nanoid(),
+        roleId: store.getActiveRoleId(),
         name: details.name,
         phone: details.phone,
         resumeText: text,
+        // Keep the exact original file (not just its extracted text) so Sheets logging can save
+        // the actual resume HR uploaded to Drive, instead of a plain-text reconstruction of it.
+        resumeFile: { base64: file.buffer.toString("base64"), filename: file.originalname, mimeType: file.mimetype },
         status: "pending",
         score: null,
         verdict: null,
@@ -99,7 +143,7 @@ candidatesRouter.post("/upload", upload.array("resumes", 50), async (req, res) =
         errorMessage: null,
         selected: false,
       });
-      results.push({ file: file.originalname, ok: true, candidate });
+      results.push({ file: file.originalname, ok: true, candidate: sanitizeCandidate(candidate) });
     } catch (err) {
       results.push({ file: file.originalname, ok: false, error: err.message });
     }
@@ -110,7 +154,7 @@ candidatesRouter.post("/upload", upload.array("resumes", 50), async (req, res) =
 candidatesRouter.patch("/:id", (req, res) => {
   const updated = store.updateCandidate(req.params.id, req.body);
   if (!updated) return res.status(404).json({ error: "Candidate not found" });
-  res.json({ candidate: updated });
+  res.json({ candidate: sanitizeCandidate(updated) });
 });
 
 candidatesRouter.delete("/:id", (req, res) => {

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 500, color: "var(--muted)", marginBottom: 8 };
@@ -9,43 +9,43 @@ const inputStyle = {
   fontSize: 14,
   padding: "10px 12px",
   border: "1px solid var(--border)",
-  borderRadius: 8,
+  borderRadius: "var(--radius-md)",
   background: "var(--surface)",
   color: "var(--ink)",
 };
 const primaryBtnStyle = {
   width: "100%",
-  padding: "13px 20px",
+  padding: "14px 20px",
   fontSize: 15,
   fontWeight: 500,
   background: "var(--accent)",
   color: "var(--bg)",
   border: "none",
-  borderRadius: 9,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const secondaryBtnStyle = {
   display: "flex",
   alignItems: "center",
-  padding: "8px 14px",
+  padding: "9px 16px",
   fontSize: 13.5,
   fontWeight: 500,
   background: "var(--surface)",
   color: "var(--ink)",
-  border: "1px solid #D8D2C2",
-  borderRadius: 7,
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const sampleBtnStyle = {
   display: "inline-flex",
   alignItems: "center",
-  padding: "10px 18px",
+  padding: "10px 20px",
   fontSize: 14,
   fontWeight: 500,
   background: "var(--accent)",
   color: "var(--bg)",
   border: "none",
-  borderRadius: 8,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const iconBtnStyle = {
@@ -56,7 +56,7 @@ const iconBtnStyle = {
   height: 28,
   background: "transparent",
   border: "none",
-  borderRadius: 6,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
   color: "var(--faint)",
 };
@@ -115,8 +115,15 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [jdGenerating, setJdGenerating] = useState(false);
   const [editingPhoneId, setEditingPhoneId] = useState(null);
   const [phoneEditValue, setPhoneEditValue] = useState("");
+  const [customQuestions, setCustomQuestions] = useState("");
+  const [customQuestionsUploading, setCustomQuestionsUploading] = useState(false);
   const fileInputRef = useRef(null);
   const jdFileInputRef = useRef(null);
+  const customQuestionsFileInputRef = useRef(null);
+
+  useEffect(() => {
+    api.getCustomQuestions().then((r) => setCustomQuestions(r.customQuestions || "")).catch(() => {});
+  }, []);
 
   const loadSampleData = async () => {
     setError("");
@@ -170,6 +177,29 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       setError(e.message);
     } finally {
       setJdUploading(false);
+    }
+  };
+
+  const saveCustomQuestions = async (value) => {
+    setCustomQuestions(value);
+    try {
+      await api.setCustomQuestions(value);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleCustomQuestionsFile = async (file) => {
+    if (!file) return;
+    setError("");
+    setCustomQuestionsUploading(true);
+    try {
+      const { customQuestions } = await api.uploadCustomQuestions(file);
+      setCustomQuestions(customQuestions);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCustomQuestionsUploading(false);
     }
   };
 
@@ -231,17 +261,17 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
             marginBottom: 32,
             padding: 20,
             border: "1px dashed var(--border)",
-            borderRadius: 10,
+            borderRadius: "var(--radius-lg)",
           }}
         >
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
-            🚀 Quick Start: Try with Sample Data
+            Quick start: try with sample data
           </div>
           <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>
             Populate a Senior Full-Stack role with 3 diverse resumes to see Gemini AI screening in action.
           </div>
           <button onClick={loadSampleData} disabled={loadingSample} style={sampleBtnStyle}>
-            {loadingSample ? "Loading..." : "⚡ Load Sample Role & Candidates"}
+            {loadingSample ? "Loading..." : "Load sample role & candidates"}
           </button>
         </section>
       )}
@@ -270,12 +300,12 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
           />
           <span style={{ fontSize: 13, color: "var(--faint)" }}>or</span>
           <button onClick={() => setShowJdGenerator((v) => !v)} style={secondaryBtnStyle}>
-            ✨ Generate with AI
+            Generate with AI
           </button>
         </div>
 
         {showJdGenerator && (
-          <div style={{ marginTop: 12, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+          <div style={{ marginTop: 12, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
             <label style={labelStyle}>Describe the role — title, seniority, tech stack, anything specific</label>
             <textarea
               value={jdNotes}
@@ -295,9 +325,46 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         )}
       </section>
 
+      <section style={{ marginBottom: 32 }}>
+        <label style={labelStyle}>
+          Custom interview questions <span style={{ fontWeight: 400, color: "var(--faint)" }}>(optional)</span>
+        </label>
+        <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
+          The AI always asks questions grounded in the job description and each candidate's resume. Add
+          questions here — paste them or upload a file — and it will ask every one of them too, on every
+          call for this role, and factor the answers into the interview score.
+        </div>
+        <textarea
+          value={customQuestions}
+          onChange={(e) => saveCustomQuestions(e.target.value)}
+          placeholder={"e.g.\n1. Are you comfortable working rotational shifts?\n2. Why are you interested in the furniture/recliner industry specifically?"}
+          style={{ ...inputStyle, minHeight: 90, resize: "vertical", marginBottom: 10 }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={() => customQuestionsFileInputRef.current?.click()} disabled={customQuestionsUploading} style={secondaryBtnStyle}>
+            {customQuestionsUploading ? "Reading file..." : "Upload questions (.pdf, .docx, .txt)"}
+          </button>
+          <input
+            ref={customQuestionsFileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.md"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              handleCustomQuestionsFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          {customQuestions.trim() && (
+            <button onClick={() => saveCustomQuestions("")} style={{ ...secondaryBtnStyle, background: "transparent", border: "none", color: "var(--faint)" }}>
+              Clear
+            </button>
+          )}
+        </div>
+      </section>
+
       <section style={{ marginBottom: 24 }}>
         <label style={labelStyle}>Add a candidate</label>
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
           <input
             value={nameField}
             onChange={(e) => setNameField(e.target.value)}
@@ -359,7 +426,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
                   gap: 12,
                   background: "var(--surface)",
                   border: "1px solid var(--border)",
-                  borderRadius: 8,
+                  borderRadius: "var(--radius-md)",
                   padding: "10px 14px",
                 }}
               >
@@ -383,7 +450,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
                       cursor: "pointer",
                       fontSize: 13,
                       padding: "4px 6px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-pill)",
                       color: c.phone ? "var(--muted)" : "var(--rust)",
                       whiteSpace: "nowrap",
                     }}

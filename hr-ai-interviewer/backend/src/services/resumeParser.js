@@ -61,25 +61,45 @@ function extractPhone(text) {
   return (labeledLine && findPhone(labeledLine)) || findPhone(text) || "";
 }
 
+// Resume headings/job-titles/degrees that are shaped just like a plausible name (1-4 capitalized
+// words) but obviously aren't one — "HRM GRADUATE" title-cases to "Hrm Graduate" and would
+// otherwise win over the real name if it appears in the first few lines as an objective line.
+const NON_NAME_WORDS = new Set([
+  "resume", "curriculum", "vitae", "cv", "profile", "summary", "objective", "contact",
+  "details", "information", "address", "email", "phone", "mobile",
+  "graduate", "undergraduate", "postgraduate", "fresher", "trainee", "intern", "internship",
+  "student", "candidate", "applicant", "professional", "career", "aspirant",
+  "engineer", "developer", "manager", "analyst", "executive", "associate", "consultant",
+  "designer", "administrator", "specialist", "coordinator", "officer", "director",
+  "lead", "head", "senior", "junior", "assistant", "intern",
+  "hr", "hrm", "it", "mba", "bba", "bca", "mca", "bsc", "msc", "btech", "mtech", "diploma",
+]);
+
+const titleCase = (s) =>
+  s === s.toUpperCase() ? s.toLowerCase().replace(/(^|\s|-)[a-z]/g, (c) => c.toUpperCase()) : s;
+
 // A resume's own header (first non-empty line, or "Name: ..." on any of the first few lines) is
 // a much more reliable name source than an uploaded filename like "resume_final_v3.pdf".
 function extractNameFromText(text) {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 5);
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 6);
+
+  // Pass 1: an explicit "Name: ..." label is the strongest signal, so it wins even if it isn't
+  // the very first plausible-looking line.
   for (const line of lines) {
     const labeled = line.match(/^name\s*[:\-]\s*(.+)$/i);
-    const candidate = labeled ? labeled[1].trim() : line;
-    // A plausible person name: 2-4 words, each starting with a capital letter, letters only
-    // (plus hyphens/apostrophes) — filters out headings like "RESUME" or "Senior Engineer, 5 yrs".
-    if (/^[A-Z][a-zA-Z'-]+(\s+[A-Z][a-zA-Z'-]+){1,3}$/.test(candidate)) {
-      // Title-case an all-caps header ("JOHN DOE" -> "John Doe") for nicer display.
-      if (candidate === candidate.toUpperCase()) {
-        return candidate
-          .toLowerCase()
-          .replace(/(^|\s|-)[a-z]/g, (c) => c.toUpperCase());
-      }
-      return candidate;
-    }
+    if (labeled) return titleCase(labeled[1].trim());
   }
+
+  // Pass 2: fall back to a bare line that reads like a person's name — 1-4 capitalized words,
+  // letters only (plus hyphens/apostrophes) — while rejecting common headings/job-titles/degrees
+  // that fit the same shape.
+  for (const line of lines) {
+    if (!/^[A-Z][a-zA-Z'-]*(\s+[A-Z][a-zA-Z'-]*){0,3}$/.test(line)) continue;
+    const words = line.toLowerCase().split(/\s+/);
+    if (words.some((w) => NON_NAME_WORDS.has(w))) continue;
+    return titleCase(line);
+  }
+
   return "";
 }
 

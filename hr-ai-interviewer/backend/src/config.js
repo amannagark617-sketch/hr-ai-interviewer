@@ -19,6 +19,11 @@ export const config = {
     liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-3.1-flash-live-preview",
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
+    // BCP-47 language code for the Live API's spoken output — this is what actually controls
+    // accent/pronunciation (the prebuilt voice above only picks the voice's timbre). Defaults to
+    // Indian English since candidates and phone numbers here are India-focused; the voice was
+    // defaulting to a US/UK-sounding accent with this unset.
+    voiceLanguage: process.env.GEMINI_VOICE_LANGUAGE || "en-IN",
   },
 
   plivo: {

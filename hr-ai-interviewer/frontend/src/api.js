@@ -26,6 +26,8 @@ export const api = {
     form.append("jobDescription", file);
     return request("/candidates/job-description/upload", { method: "POST", body: form });
   },
+  generateJobDescription: (notes) =>
+    request("/candidates/job-description/generate", { method: "POST", body: JSON.stringify({ notes }) }),
 
   listCandidates: () => request("/candidates"),
   addCandidate: (name, resumeText, phone) =>
@@ -44,4 +46,15 @@ export const api = {
   triggerCalls: (candidateIds) =>
     request("/calls/trigger", { method: "POST", body: JSON.stringify({ candidateIds }) }),
   listCalls: () => request("/calls"),
+
+  // Raw text, not JSON — proxied server-side by the backend (see routes/dashboard.js) so the
+  // browser never has to fetch Google's published-CSV URL directly, which can hit CORS.
+  getSheetCsv: async () => {
+    const res = await fetch(`${BASE}/dashboard/sheet-csv`, { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.text();
+  },
 };

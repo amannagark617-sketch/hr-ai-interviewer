@@ -31,6 +31,38 @@ async function generateWithRetry(model, prompt, attempts = 3) {
 }
 
 /**
+ * Expands a short role description (a title plus a few free-form notes) into a full,
+ * structured job description, so HR doesn't have to write one from scratch for every role.
+ * Returns plain text, ready to drop straight into the job description field.
+ */
+export async function generateJobDescription(notes) {
+  const model = client.getGenerativeModel({ model: config.gemini.textModel });
+
+  const prompt = `You are an experienced technical recruiter writing a job description for an internal
+hiring tool. Turn the role notes below into a complete, well-structured job description.
+
+Respond with ONLY the job description as plain text — no markdown fences, no preamble, no
+commentary before or after.
+
+Structure it like this:
+- A one-line title
+- A short 2-3 sentence intro to the role and team
+- "Responsibilities:" — 4-6 bullet points (use "- " for bullets)
+- "Required skills:" — 4-6 bullet points, concrete and specific (years of experience, named
+  technologies, not vague qualities)
+- "Nice to have:" — 2-4 bullet points
+
+Infer seniority, tech stack, and responsibilities from whatever the notes below actually say —
+don't pad with generic boilerplate unrelated to what was asked for.
+
+Role notes:
+${notes}`;
+
+  const result = await generateWithRetry(model, prompt);
+  return result.response.text().trim();
+}
+
+/**
  * Scores a single resume against a job description.
  * Returns { score, verdict, pros, cons }.
  */

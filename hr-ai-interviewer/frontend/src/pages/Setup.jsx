@@ -110,6 +110,9 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [saving, setSaving] = useState(false);
   const [jdUploading, setJdUploading] = useState(false);
   const [loadingSample, setLoadingSample] = useState(false);
+  const [showJdGenerator, setShowJdGenerator] = useState(false);
+  const [jdNotes, setJdNotes] = useState("");
+  const [jdGenerating, setJdGenerating] = useState(false);
   const [editingPhoneId, setEditingPhoneId] = useState(null);
   const [phoneEditValue, setPhoneEditValue] = useState("");
   const fileInputRef = useRef(null);
@@ -137,6 +140,22 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       await api.setJobDescription(value);
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  const handleGenerateJd = async () => {
+    if (!jdNotes.trim()) return;
+    setError("");
+    setJdGenerating(true);
+    try {
+      const { jobDescription } = await api.generateJobDescription(jdNotes.trim());
+      setJd(jobDescription);
+      setShowJdGenerator(false);
+      setJdNotes("");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setJdGenerating(false);
     }
   };
 
@@ -235,7 +254,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
           placeholder="Paste the full job description — responsibilities, required skills, seniority level..."
           style={{ ...inputStyle, minHeight: 140, resize: "vertical", marginBottom: 10 }}
         />
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button onClick={() => jdFileInputRef.current?.click()} disabled={jdUploading} style={secondaryBtnStyle}>
             {jdUploading ? "Reading file..." : "Upload job description (.pdf, .docx, .txt)"}
           </button>
@@ -249,7 +268,31 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
               e.target.value = "";
             }}
           />
+          <span style={{ fontSize: 13, color: "var(--faint)" }}>or</span>
+          <button onClick={() => setShowJdGenerator((v) => !v)} style={secondaryBtnStyle}>
+            ✨ Generate with AI
+          </button>
         </div>
+
+        {showJdGenerator && (
+          <div style={{ marginTop: 12, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+            <label style={labelStyle}>Describe the role — title, seniority, tech stack, anything specific</label>
+            <textarea
+              value={jdNotes}
+              onChange={(e) => setJdNotes(e.target.value)}
+              placeholder="e.g. Senior backend engineer, 5+ years, Node.js and Postgres, remote-friendly, leads a small team..."
+              style={{ ...inputStyle, minHeight: 80, resize: "vertical", marginBottom: 10 }}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={handleGenerateJd} disabled={!jdNotes.trim() || jdGenerating} style={secondaryBtnStyle}>
+                {jdGenerating ? "Generating..." : "Generate job description"}
+              </button>
+              <button onClick={() => setShowJdGenerator(false)} style={{ ...secondaryBtnStyle, background: "transparent", border: "none" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section style={{ marginBottom: 24 }}>

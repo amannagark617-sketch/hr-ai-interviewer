@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import Setup from "./pages/Setup.jsx";
 import Results from "./pages/Results.jsx";
 import Calls from "./pages/Calls.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
 
 const iconBtnStyle = {
   display: "flex",
@@ -30,7 +31,7 @@ const tabStyle = (active) => ({
 });
 
 export default function App() {
-  const [step, setStep] = useState("setup"); // "setup" | "results" | "calls"
+  const [step, setStep] = useState("setup"); // "setup" | "results" | "calls" | "dashboard"
   const [jd, setJd] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [rankError, setRankError] = useState("");
@@ -89,6 +90,7 @@ export default function App() {
             Rank &amp; select
           </button>
           <button style={tabStyle(step === "calls")} onClick={() => setStep("calls")}>Calls</button>
+          <button style={tabStyle(step === "dashboard")} onClick={() => setStep("dashboard")}>Dashboard</button>
         </div>
       </header>
 
@@ -105,6 +107,7 @@ export default function App() {
         <Results candidates={candidates} refreshCandidates={refreshCandidates} onCallsTriggered={() => setStep("calls")} />
       )}
       {step === "calls" && <Calls />}
+      {step === "dashboard" && <Dashboard />}
     </div>
   );
 }

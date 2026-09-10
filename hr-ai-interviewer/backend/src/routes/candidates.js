@@ -3,6 +3,7 @@ import multer from "multer";
 import { nanoid } from "nanoid";
 import { store } from "../data/store.js";
 import { extractResumeText, extractCandidateDetails } from "../services/resumeParser.js";
+import { generateJobDescription } from "../services/geminiService.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 export const candidatesRouter = Router();
@@ -18,6 +19,22 @@ candidatesRouter.put("/job-description", (req, res) => {
   }
   store.setJobDescription(jobDescription.trim());
   res.json({ ok: true });
+});
+
+// Generates a full job description from a role title + a few free-form notes, so HR doesn't
+// have to write one from scratch for every role.
+candidatesRouter.post("/job-description/generate", async (req, res) => {
+  const { notes } = req.body;
+  if (typeof notes !== "string" || !notes.trim()) {
+    return res.status(400).json({ error: "notes is required — a role title and a few details" });
+  }
+  try {
+    const jobDescription = await generateJobDescription(notes.trim());
+    store.setJobDescription(jobDescription);
+    res.json({ jobDescription });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // Upload the job description as a file instead of pasting it (.pdf, .docx, .txt).

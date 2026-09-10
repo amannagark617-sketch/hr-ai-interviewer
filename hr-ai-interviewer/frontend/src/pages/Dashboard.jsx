@@ -53,10 +53,33 @@ function rowsToObjects(rows) {
   });
 }
 
+// Reverses Code.gs's joinList(arr) => arr.join("; ") so bullet-list columns (pros/cons/
+// strengths/concerns) render as lists instead of one run-on sentence.
+function splitList(value) {
+  return (value || "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function average(values) {
   const nums = values.map(Number).filter((n) => !isNaN(n));
   if (nums.length === 0) return null;
   return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 10) / 10;
+}
+
+// "Call duration" is stored as "m:ss" (see Code.gs formatDuration) — parse back to seconds so it
+// can be averaged, then reformat the same way.
+function parseDuration(value) {
+  const m = (value || "").match(/^(\d+):(\d{2})$/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+function formatDuration(seconds) {
+  if (seconds == null) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 const STATUS_COLORS = {
@@ -74,11 +97,23 @@ const tileStyle = {
   minWidth: 140,
 };
 
+const columns = [
+  { key: "Candidate", label: "Candidate" },
+  { key: "Phone", label: "Phone" },
+  { key: "Resume score", label: "Resume" },
+  { key: "Call status", label: "Call status" },
+  { key: "Call duration", label: "Duration" },
+  { key: "Interview score", label: "Interview" },
+  { key: "Recommendation", label: "Recommendation" },
+  { key: "Logged at", label: "Logged at" },
+];
+
 export default function Dashboard() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [notConfigured, setNotConfigured] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -127,9 +162,12 @@ export default function Dashboard() {
   const maxCount = Math.max(1, ...Object.values(counts));
   const avgResumeScore = rows ? average(rows.map((r) => r["Resume score"])) : null;
   const avgInterviewScore = rows ? average(rows.map((r) => r["Interview score"])) : null;
+  const avgCallDurationSeconds = rows
+    ? average(rows.map((r) => parseDuration(r["Call duration"])).filter((s) => s != null))
+    : null;
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px 80px" }}>
+    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "32px 24px 80px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <label style={labelStyle}>Overview</label>
         <button onClick={load} disabled={loading} style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 13, cursor: "pointer" }}>
@@ -158,6 +196,12 @@ export default function Dashboard() {
               <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 6 }}>Avg interview score</div>
               <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>{avgInterviewScore ?? "—"}</div>
             </div>
+            <div style={tileStyle}>
+              <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 6 }}>Avg call duration</div>
+              <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>
+                {avgCallDurationSeconds != null ? formatDuration(Math.round(avgCallDurationSeconds)) : "—"}
+              </div>
+            </div>
           </div>
 
           <section style={{ marginBottom: 32 }}>
@@ -185,32 +229,51 @@ export default function Dashboard() {
           </section>
 
           <section>
-            <label style={labelStyle}>All logged candidates</label>
+            <label style={labelStyle}>
+              All logged candidates <span style={{ fontWeight: 400, color: "var(--faint)" }}>— click a row for the full detail</span>
+            </label>
             <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                    {["Candidate", "Resume score", "Call status", "Interview score", "Recommendation", "Logged at"].map((h) => (
-                      <th key={h} style={{ textAlign: "left", padding: "10px 12px", color: "var(--faint)", fontWeight: 500, whiteSpace: "nowrap" }}>
-                        {h}
+                    {columns.map((c) => (
+                      <th key={c.key} style={{ textAlign: "left", padding: "10px 12px", color: "var(--faint)", fontWeight: 500, whiteSpace: "nowrap" }}>
+                        {c.label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid var(--border-soft)" }}>
-                      <td style={{ padding: "10px 12px" }}>{r["Candidate"]}</td>
-                      <td style={{ padding: "10px 12px" }}>{r["Resume score"]}</td>
-                      <td style={{ padding: "10px 12px" }}>{r["Call status"]}</td>
-                      <td style={{ padding: "10px 12px" }}>{r["Interview score"]}</td>
-                      <td style={{ padding: "10px 12px", textTransform: "capitalize" }}>{r["Recommendation"]}</td>
-                      <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--faint)" }}>{r["Logged at"]?.slice(0, 16).replace("T", " ")}</td>
-                    </tr>
-                  ))}
+                  {rows.map((r, i) => {
+                    const isOpen = expanded === i;
+                    return (
+                      <React.Fragment key={i}>
+                        <tr
+                          onClick={() => setExpanded(isOpen ? null : i)}
+                          style={{ borderBottom: isOpen ? "none" : "1px solid var(--border-soft)", cursor: "pointer", background: isOpen ? "var(--surface-raised)" : "transparent" }}
+                        >
+                          <td style={{ padding: "10px 12px", fontWeight: 500 }}>{r["Candidate"]}</td>
+                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--muted)" }}>{r["Phone"]}</td>
+                          <td style={{ padding: "10px 12px" }}>{r["Resume score"]}</td>
+                          <td style={{ padding: "10px 12px", textTransform: "capitalize" }}>{r["Call status"]}</td>
+                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>{r["Call duration"] || "—"}</td>
+                          <td style={{ padding: "10px 12px" }}>{r["Interview score"]}</td>
+                          <td style={{ padding: "10px 12px", textTransform: "capitalize" }}>{r["Recommendation"]}</td>
+                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--faint)" }}>{r["Logged at"]?.slice(0, 16).replace("T", " ")}</td>
+                        </tr>
+                        {isOpen && (
+                          <tr style={{ borderBottom: "1px solid var(--border-soft)", background: "var(--surface-raised)" }}>
+                            <td colSpan={columns.length} style={{ padding: "4px 16px 20px" }}>
+                              <DetailPanel row={r} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={6} style={{ padding: "24px 12px", textAlign: "center", color: "var(--faint)" }}>
+                      <td colSpan={columns.length} style={{ padding: "24px 12px", textAlign: "center", color: "var(--faint)" }}>
                         No rows logged yet.
                       </td>
                     </tr>
@@ -225,4 +288,111 @@ export default function Dashboard() {
   );
 }
 
+function DetailPanel({ row }) {
+  const resumePros = splitList(row["Resume pros"]);
+  const resumeCons = splitList(row["Resume cons"]);
+  const strengths = splitList(row["Interview strengths"]);
+  const concerns = splitList(row["Interview concerns"]);
+  const resumeLink = row["Resume (Drive link)"];
+  const recordingUrl = row["Recording URL"];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 760 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {resumeLink && (
+          <a href={resumeLink} target="_blank" rel="noreferrer" style={linkPillStyle}>
+            📄 Open resume
+          </a>
+        )}
+      </div>
+
+      {row["Resume verdict"] && (
+        <div>
+          <div style={detailLabelStyle}>Resume verdict</div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>{row["Resume verdict"]}</div>
+        </div>
+      )}
+
+      {(resumePros.length > 0 || resumeCons.length > 0) && (
+        <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+          {resumePros.length > 0 && (
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ ...detailLabelStyle, color: "var(--success)" }}>Resume pros</div>
+              <ul style={bulletListStyle}>
+                {resumePros.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+          {resumeCons.length > 0 && (
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ ...detailLabelStyle, color: "var(--rust)" }}>Resume cons</div>
+              <ul style={bulletListStyle}>
+                {resumeCons.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {row["Interview summary"] && (
+        <div>
+          <div style={detailLabelStyle}>Interview summary</div>
+          <div style={{ fontSize: 13.5, lineHeight: 1.6 }}>{row["Interview summary"]}</div>
+        </div>
+      )}
+
+      {(strengths.length > 0 || concerns.length > 0) && (
+        <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+          {strengths.length > 0 && (
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ ...detailLabelStyle, color: "var(--success)" }}>Interview strengths</div>
+              <ul style={bulletListStyle}>
+                {strengths.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+          {concerns.length > 0 && (
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ ...detailLabelStyle, color: "var(--rust)" }}>Interview concerns</div>
+              <ul style={bulletListStyle}>
+                {concerns.map((p, i) => <li key={i}>{p}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {recordingUrl && (
+        <div>
+          <div style={detailLabelStyle}>Call recording</div>
+          <audio controls src={recordingUrl} style={{ width: "100%", maxWidth: 420, height: 32 }} />
+        </div>
+      )}
+
+      {!row["Resume verdict"] &&
+        resumePros.length === 0 &&
+        resumeCons.length === 0 &&
+        !row["Interview summary"] &&
+        strengths.length === 0 &&
+        concerns.length === 0 &&
+        !recordingUrl &&
+        !resumeLink && <div style={{ fontSize: 13, color: "var(--faint)" }}>No further detail logged for this row.</div>}
+    </div>
+  );
+}
+
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 500, color: "var(--muted)", marginBottom: 8 };
+const detailLabelStyle = { fontSize: 12, fontWeight: 500, color: "var(--muted)", marginBottom: 6, marginTop: 4 };
+const bulletListStyle = { margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.7 };
+const linkPillStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "6px 14px",
+  fontSize: 12.5,
+  fontWeight: 500,
+  color: "var(--accent)",
+  background: "var(--accent-soft)",
+  borderRadius: "var(--radius-pill)",
+  textDecoration: "none",
+};

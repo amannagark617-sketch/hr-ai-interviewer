@@ -1,13 +1,13 @@
 :root {
-  /* Little Nap Recliners — warm neutrals, generous radius, pill controls */
-  --bg: #FAF8F3;
+  /* Little Nap Recliners — clean white, generous radius, pill controls */
+  --bg: #FFFFFF;
   --surface: #FFFFFF;
-  --surface-raised: #F5F2EA;
-  --ink: #211F1C;
-  --muted: #6B6558;
-  --faint: #948D7D;
-  --border: #E4DFD3;
-  --border-soft: #F0ECE1;
+  --surface-raised: #F5F5F7;
+  --ink: #1D1D1F;
+  --muted: #6E6E73;
+  --faint: #8E8E93;
+  --border: #D9D9DE;
+  --border-soft: #ECECEE;
   --accent: #2B4C3F;
   --accent-soft: #E7EEE9;
   --accent-hover: #223D33;

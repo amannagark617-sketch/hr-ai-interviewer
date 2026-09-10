@@ -132,8 +132,8 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
               padding: "9px 18px",
               borderRadius: "var(--radius-pill)",
               border: "none",
-              background: selected.length === 0 ? "#4A473F" : "var(--call)",
-              color: selected.length === 0 ? "#8A8577" : "var(--ink)",
+              background: selected.length === 0 ? "#3A3A3C" : "var(--call)",
+              color: selected.length === 0 ? "#8E8E93" : "var(--ink)",
               cursor: selected.length === 0 || triggering ? "not-allowed" : "pointer",
             }}
           >

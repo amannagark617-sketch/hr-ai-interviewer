@@ -32,7 +32,7 @@ const secondaryBtnStyle = {
   fontWeight: 500,
   background: "var(--surface)",
   color: "var(--ink)",
-  border: "1px solid #D8D2C2",
+  border: "1px solid var(--border)",
   borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };

@@ -1,6 +1,8 @@
 :root {
+  /* Little Nap Recliners — warm neutrals, generous radius, pill controls */
   --bg: #FAF8F3;
   --surface: #FFFFFF;
+  --surface-raised: #F5F2EA;
   --ink: #211F1C;
   --muted: #6B6558;
   --faint: #948D7D;
@@ -8,29 +10,50 @@
   --border-soft: #F0ECE1;
   --accent: #2B4C3F;
   --accent-soft: #E7EEE9;
+  --accent-hover: #223D33;
   --amber: #8A6417;
   --amber-soft: #F5EEDD;
   --rust: #9A4331;
   --rust-soft: #F4E4DE;
   --call: #EAA24A;
+
+  /* Radius scale */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 980px;
+
+  /* Motion */
+  --motion-fast: 160ms ease;
+  --motion-normal: 260ms ease;
 }
 
 * { box-sizing: border-box; }
+
+html { color-scheme: light; }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: "IBM Plex Sans", sans-serif;
+  font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .serif { font-family: "Source Serif 4", serif; }
 
-button { font-family: inherit; }
+button {
+  font-family: inherit;
+  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast);
+}
+button:active:not(:disabled) { transform: scale(0.98); }
+button:disabled { cursor: not-allowed; }
 
-textarea:focus, input:focus, button:focus-visible {
+a { color: var(--accent); }
+
+textarea:focus, input:focus, button:focus-visible, [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

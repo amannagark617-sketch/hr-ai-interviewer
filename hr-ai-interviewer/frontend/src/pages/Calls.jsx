@@ -4,7 +4,7 @@ import { api } from "../api.js";
 const cardStyle = {
   background: "var(--surface)",
   border: "1px solid var(--border)",
-  borderRadius: 10,
+  borderRadius: "var(--radius-lg)",
   padding: "14px 16px",
 };
 
@@ -73,7 +73,7 @@ export default function Calls() {
                       {call.interviewScore}
                     </div>
                   )}
-                  <span style={{ fontSize: 12, fontWeight: 500, color: badge.color, background: badge.bg, borderRadius: 6, padding: "4px 10px", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: badge.color, background: badge.bg, borderRadius: "var(--radius-pill)", padding: "4px 10px", whiteSpace: "nowrap" }}>
                     {badge.label}
                   </span>
                 </div>

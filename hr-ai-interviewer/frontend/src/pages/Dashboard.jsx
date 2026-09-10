@@ -68,7 +68,7 @@ const STATUS_COLORS = {
 const tileStyle = {
   background: "var(--surface)",
   border: "1px solid var(--border)",
-  borderRadius: 10,
+  borderRadius: "var(--radius-lg)",
   padding: "16px 18px",
   flex: 1,
   minWidth: 140,
@@ -102,7 +102,7 @@ export default function Dashboard() {
   if (notConfigured) {
     return (
       <div style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px 80px" }}>
-        <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: 10, padding: 20 }}>
+        <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: "var(--radius-lg)", padding: 20 }}>
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Connect your Google Sheet</div>
           <div style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.7 }}>
             In your Google Sheet: <strong>File → Share → Publish to web</strong>, pick the <strong>"Round 1"</strong> tab,
@@ -162,7 +162,7 @@ export default function Dashboard() {
 
           <section style={{ marginBottom: 32 }}>
             <label style={labelStyle}>Recommendation breakdown</label>
-            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
               {Object.entries(STATUS_COLORS).map(([key, { color, bg, label }]) => (
                 <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ width: 64, fontSize: 12.5, fontWeight: 500, color: "var(--muted)" }}>{label}</span>
@@ -186,7 +186,7 @@ export default function Dashboard() {
 
           <section>
             <label style={labelStyle}>All logged candidates</label>
-            <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface)" }}>
+            <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>

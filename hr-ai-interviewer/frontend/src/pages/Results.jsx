@@ -51,7 +51,7 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
           const tier = c.status === "done" ? tierFor(c.score) : null;
           const isOpen = expanded === c.id;
           return (
-            <div key={c.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+            <div key={c.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
               <div
                 onClick={() => c.status === "done" && setExpanded(isOpen ? null : c.id)}
                 style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", cursor: c.status === "done" ? "pointer" : "default" }}
@@ -86,7 +86,7 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
                   {c.status === "done" && <div style={{ fontSize: 13, color: "var(--muted)" }}>{c.verdict}</div>}
                 </div>
                 {tier && (
-                  <span style={{ fontSize: 12, fontWeight: 500, color: tier.color, background: tier.bg, borderRadius: 6, padding: "4px 10px", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: tier.color, background: tier.bg, borderRadius: "var(--radius-pill)", padding: "4px 10px", whiteSpace: "nowrap" }}>
                     {tier.label}
                   </span>
                 )}
@@ -114,11 +114,11 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
 
       <div style={{ position: "sticky", bottom: 20, marginTop: 28, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
         {callMessage && (
-          <div style={{ fontSize: 13, color: "var(--muted)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", maxWidth: 500, textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: "var(--muted)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-pill)", padding: "8px 14px", maxWidth: 500, textAlign: "center" }}>
             {callMessage}
           </div>
         )}
-        <div style={{ background: "var(--ink)", color: "var(--bg)", borderRadius: 12, padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
+        <div style={{ background: "var(--ink)", color: "var(--bg)", borderRadius: "var(--radius-pill)", padding: "14px 22px", display: "flex", alignItems: "center", gap: 16, boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
           <span style={{ fontSize: 14 }}>{selected.length} selected for interview</span>
           <button
             onClick={triggerCalls}
@@ -129,8 +129,8 @@ export default function Results({ candidates, refreshCandidates, onCallsTriggere
               gap: 8,
               fontSize: 14,
               fontWeight: 500,
-              padding: "9px 16px",
-              borderRadius: 8,
+              padding: "9px 18px",
+              borderRadius: "var(--radius-pill)",
               border: "none",
               background: selected.length === 0 ? "#4A473F" : "var(--call)",
               color: selected.length === 0 ? "#8A8577" : "var(--ink)",

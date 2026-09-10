@@ -9,43 +9,43 @@ const inputStyle = {
   fontSize: 14,
   padding: "10px 12px",
   border: "1px solid var(--border)",
-  borderRadius: 8,
+  borderRadius: "var(--radius-md)",
   background: "var(--surface)",
   color: "var(--ink)",
 };
 const primaryBtnStyle = {
   width: "100%",
-  padding: "13px 20px",
+  padding: "14px 20px",
   fontSize: 15,
   fontWeight: 500,
   background: "var(--accent)",
   color: "var(--bg)",
   border: "none",
-  borderRadius: 9,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const secondaryBtnStyle = {
   display: "flex",
   alignItems: "center",
-  padding: "8px 14px",
+  padding: "9px 16px",
   fontSize: 13.5,
   fontWeight: 500,
   background: "var(--surface)",
   color: "var(--ink)",
   border: "1px solid #D8D2C2",
-  borderRadius: 7,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const sampleBtnStyle = {
   display: "inline-flex",
   alignItems: "center",
-  padding: "10px 18px",
+  padding: "10px 20px",
   fontSize: 14,
   fontWeight: 500,
   background: "var(--accent)",
   color: "var(--bg)",
   border: "none",
-  borderRadius: 8,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
 const iconBtnStyle = {
@@ -56,7 +56,7 @@ const iconBtnStyle = {
   height: 28,
   background: "transparent",
   border: "none",
-  borderRadius: 6,
+  borderRadius: "var(--radius-pill)",
   cursor: "pointer",
   color: "var(--faint)",
 };
@@ -231,7 +231,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
             marginBottom: 32,
             padding: 20,
             border: "1px dashed var(--border)",
-            borderRadius: 10,
+            borderRadius: "var(--radius-lg)",
           }}
         >
           <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
@@ -275,7 +275,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         </div>
 
         {showJdGenerator && (
-          <div style={{ marginTop: 12, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+          <div style={{ marginTop: 12, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
             <label style={labelStyle}>Describe the role — title, seniority, tech stack, anything specific</label>
             <textarea
               value={jdNotes}
@@ -297,7 +297,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
 
       <section style={{ marginBottom: 24 }}>
         <label style={labelStyle}>Add a candidate</label>
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
           <input
             value={nameField}
             onChange={(e) => setNameField(e.target.value)}
@@ -359,7 +359,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
                   gap: 12,
                   background: "var(--surface)",
                   border: "1px solid var(--border)",
-                  borderRadius: 8,
+                  borderRadius: "var(--radius-md)",
                   padding: "10px 14px",
                 }}
               >
@@ -383,7 +383,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
                       cursor: "pointer",
                       fontSize: 13,
                       padding: "4px 6px",
-                      borderRadius: 6,
+                      borderRadius: "var(--radius-pill)",
                       color: c.phone ? "var(--muted)" : "var(--rust)",
                       whiteSpace: "nowrap",
                     }}

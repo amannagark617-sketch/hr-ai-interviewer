@@ -48,6 +48,21 @@ webhooksRouter.post("/hangup", async (req, res) => {
   const jobDescription = store.getJobDescription();
   const customQuestions = store.getCustomQuestions();
 
+  // Duration was previously computed as Date.now() - answeredAt at the BOTTOM of this handler —
+  // after the recording fetch, the transcript-wait retry loop, and the Gemini scoring call had
+  // all already run, so "now" was however long those took (seconds to tens of seconds) after the
+  // call actually ended, not at hangup. Plivo's own hangup callback carries the real duration it
+  // measured (Duration, seconds, falling back to BillDuration) — that's ground truth from the
+  // call itself, immune to any lag or bug in our own answeredAt bookkeeping, so prefer it and only
+  // fall back to our own estimate — captured right here, before any of those delays — if Plivo
+  // didn't send one.
+  const plivoDuration = Number(req.body.Duration ?? req.body.BillDuration ?? req.body.duration ?? req.body.bill_duration);
+  const selfEstimatedDuration = call.answeredAt ? Math.round((Date.now() - new Date(call.answeredAt).getTime()) / 1000) : null;
+  const durationSeconds = Number.isFinite(plivoDuration) && plivoDuration >= 0 ? plivoDuration : selfEstimatedDuration;
+  console.log(
+    `[webhooks/hangup] Call ${callId} duration: Plivo reported Duration=${req.body.Duration} BillDuration=${req.body.BillDuration}, our own estimate=${selfEstimatedDuration}s, using ${durationSeconds}s`
+  );
+
   store.updateCall(callId, { status: "completed" });
 
   // Recording fetch, interview scoring, and Sheets logging are three independent outcomes —
@@ -98,8 +113,6 @@ webhooksRouter.post("/hangup", async (req, res) => {
   } else {
     console.error(`[webhooks/hangup] Call ${callId} has no transcript after retrying — skipping post-call scoring. Either the call had no audible speech, or the WS bridge never persisted one.`);
   }
-
-  const durationSeconds = call.answeredAt ? Math.round((Date.now() - new Date(call.answeredAt).getTime()) / 1000) : null;
 
   store.updateCall(callId, {
     recordingUrl,

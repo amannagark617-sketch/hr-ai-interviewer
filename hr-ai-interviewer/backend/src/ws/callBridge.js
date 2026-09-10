@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { config } from "../config.js";
 import { store } from "../data/store.js";
+import { hangupCall } from "../services/plivoService.js";
 
 // ---------------------------------------------------------------------------
 // IMPORTANT: this file has NOT been run against live Plivo/Gemini traffic.
@@ -86,6 +87,12 @@ Call structure:
 3. Ask about their availability / notice period.
 4. Give them a chance to ask one quick question, thank them genuinely, and close warmly — let them know
    the team will follow up soon.
+5. Immediately after you say goodbye, call the end_call function to hang up. Don't call it before you've
+   actually said your closing line, and don't announce that you're about to call it — just call it.
+
+The call has just connected as you receive this — there is no small talk before you; begin immediately
+with step 1. A message may arrive telling you the call has connected and to begin — that message is a
+system trigger, not something the candidate said.
 
 Role this candidate is interviewing for:
 ${jobDescription}
@@ -124,6 +131,22 @@ function openGeminiLiveSession(jobDescription, candidate, callId) {
               },
             ],
           },
+          // Lets the model actually end the call once it's done, instead of the conversation
+          // being over while the phone stays connected indefinitely (the <Wait length="1800"/>
+          // in the answer XML exists specifically to stop the call dropping mid-conversation,
+          // but that means nothing else ever hangs it up either — this closes that gap).
+          tools: [
+            {
+              functionDeclarations: [
+                {
+                  name: "end_call",
+                  description:
+                    "Hang up the phone call. Call this immediately after saying your closing goodbye, once the interview is complete.",
+                  parameters: { type: "OBJECT", properties: {} },
+                },
+              ],
+            },
+          ],
         },
       })
     );
@@ -186,6 +209,35 @@ export function attachCallBridge(httpServer) {
         if (msg?.setupComplete && !setupComplete) {
           setupComplete = true;
           console.log(`[callBridge] Gemini Live setup complete for call ${callId} — agent is live`);
+          // Gemini only generates audio in response to input it receives — with nothing ever
+          // sent, it just sits in silence waiting for the candidate to speak first, which on a
+          // real call meant ~20s of dead air with the candidate saying "hello?" into nothing.
+          // This synthetic turn is what actually gets the agent to open the conversation.
+          geminiSocket.send(
+            JSON.stringify({
+              clientContent: {
+                turns: [{ role: "user", parts: [{ text: "(The call has just connected. Begin the conversation now.)" }] }],
+                turnComplete: true,
+              },
+            })
+          );
+        }
+
+        // The model decided the interview is over and is hanging up (see the end_call tool
+        // declared in the setup message above). Actually end the call instead of leaving the
+        // phone connected after the agent has already said goodbye — this is also what lets
+        // /hangup ever fire so the post-call score/recommendation get computed and stored.
+        const functionCalls = msg?.toolCall?.functionCalls;
+        if (functionCalls?.some((fc) => fc.name === "end_call")) {
+          console.log(`[callBridge] Agent called end_call for call ${callId} — hanging up`);
+          if (call.plivoCallUuid) {
+            hangupCall(call.plivoCallUuid).catch((err) =>
+              console.error(`[callBridge] Failed to hang up call ${callId} via Plivo API:`, err.message)
+            );
+          } else {
+            console.error(`[callBridge] end_call fired for call ${callId} but no plivoCallUuid on record — cannot hang up.`);
+          }
+          return;
         }
 
         // Model was interrupted (candidate started talking over it) — Gemini stops generating on

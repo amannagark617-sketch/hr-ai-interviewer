@@ -114,7 +114,26 @@ Shape:
   "concerns": ["<short phrase>", "..."]
 }
 
-Base this only on what the candidate actually said in the transcript below — do not invent details.
+This is CALL screening — a separate, independent evaluation from resume screening, which already
+happened before this call and is not your job here. score/recommendation/strengths/concerns must be
+based ONLY on how the candidate performed in THIS conversation: the depth, correctness, and clarity of
+what they actually said, and how well they handled follow-up questions. Never grade them here against
+the full job description as if it were a checklist — that would just be re-doing resume screening, and
+would unfairly penalize the candidate for anything the call happened not to cover.
+
+Hard rule, do not violate it: only put a skill, tool, or topic in "strengths" or "concerns" if it was
+actually raised and discussed — by either the interviewer or the candidate — somewhere in the
+transcript below. A first-round phone screen is short and was never going to cover everything the job
+description lists as wanted; that is normal, not a shortcoming. If a skill from the job description
+was never asked about in this call, silence on it is NOT evidence the candidate lacks it, and it must
+not appear as a concern — e.g. if the transcript never mentions a specific tool, do not write a concern
+like "limited depth on <that tool>"; you have no basis for that claim from this transcript. Before you
+finalize your answer, re-check every single item you're about to put in "strengths" and "concerns"
+against the transcript and delete any you cannot point to an actual moment in it for.
+
+The job description below is background only, so you can judge whether what the candidate said makes
+sense for this kind of role (e.g. is the project they described relevant seniority/scope) — it is not
+a rubric to score transcript coverage against.
 ${hasCustomQuestions
   ? `\nThe interviewer was specifically required to ask the "Mandatory questions" listed below, on top
 of the usual resume/JD-grounded questions. Find where each one was asked in the transcript and weigh
@@ -125,7 +144,8 @@ about the job description. If the transcript shows the interviewer never actuall
 the summary instead.\n`
   : ""
 }
-Job description:
+Job description (background only — see hard rule above, do not penalize for topics from here the call
+never actually covered):
 ${jobDescription}
 ${hasCustomQuestions ? `\nMandatory questions the interviewer was required to ask:\n${customQuestions.trim()}\n` : ""}
 Interview transcript (${candidateName}):

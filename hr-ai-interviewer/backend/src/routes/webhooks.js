@@ -122,7 +122,13 @@ webhooksRouter.post("/hangup", async (req, res) => {
         // Sent raw so Code.gs can save it as a Drive file and link it from the row — keeps this
         // app's "no service account" design (Apps Script already runs as the sheet owner's own
         // Google identity, so it can write to that same account's Drive with no new credentials).
+        // resumeFile (the exact original upload) is preferred when present; Code.gs falls back to
+        // saving resumeText as a plain-text file for candidates added by pasting text directly,
+        // which never had an original file to begin with.
         resumeText: candidate?.resumeText || "",
+        resumeFileBase64: candidate?.resumeFile?.base64 || "",
+        resumeFileName: candidate?.resumeFile?.filename || "",
+        resumeMimeType: candidate?.resumeFile?.mimeType || "",
         callStatus: "completed",
         callDurationSeconds: durationSeconds,
         interviewScore,

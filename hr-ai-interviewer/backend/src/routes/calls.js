@@ -6,10 +6,19 @@ import { placeCall } from "../services/plivoService.js";
 
 export const callsRouter = Router();
 
+// See the matching helper in routes/candidates.js — the embedded candidate record carries the
+// original resume file (base64) server-side for Sheets/Drive logging, and this endpoint gets
+// polled every few seconds while a call is active, so it must never ship that back to the browser.
+function sanitizeCandidate(candidate) {
+  if (!candidate) return null;
+  const { resumeFile, ...rest } = candidate;
+  return rest;
+}
+
 callsRouter.get("/", (req, res) => {
   const calls = store.listCalls().map((call) => ({
     ...call,
-    candidate: store.getCandidate(call.candidateId) || null,
+    candidate: sanitizeCandidate(store.getCandidate(call.candidateId)),
   }));
   res.json({ calls });
 });

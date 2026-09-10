@@ -60,7 +60,7 @@ function doPost(e) {
     }
 
     const row = body.row || {};
-    const resumeUrl = saveResumeToDrive(row.candidateName, row.resumeText);
+    const resumeUrl = saveResumeToDrive(row);
 
     sheet.appendRow([
       row.candidateName || "",
@@ -87,18 +87,35 @@ function doPost(e) {
   }
 }
 
-// Saves the resume text as a Drive file (in a dedicated folder, created on first use) and
+// Saves the candidate's resume to Drive (in a dedicated folder, created on first use) and
 // returns its URL, so a manager can open the actual resume straight from the sheet — same
-// account as the sheet itself, no separate storage or credentials to set up. Returns "" if no
-// resume text was sent (e.g. Sheets logging for a call whose candidate record is gone).
-function saveResumeToDrive(candidateName, resumeText) {
-  if (!resumeText || !resumeText.trim()) return "";
+// account as the sheet itself, no separate storage or credentials to set up.
+//
+// Prefers the exact original file HR uploaded (row.resumeFileBase64/resumeFileName/
+// resumeMimeType) over reconstructing a .txt file from extracted text — a PDF/DOCX saved as
+// plain text loses all formatting, and isn't literally the file HR uploaded. Falls back to
+// saving row.resumeText as a plain-text file only for candidates added by pasting resume text
+// directly into the app, who never had an original file to begin with. Returns "" if neither is
+// present (e.g. Sheets logging for a call whose candidate record is gone).
+function saveResumeToDrive(row) {
+  const hasFile = row.resumeFileBase64 && row.resumeFileBase64.trim();
+  const hasText = row.resumeText && row.resumeText.trim();
+  if (!hasFile && !hasText) return "";
 
   const folders = DriveApp.getFoldersByName(DRIVE_FOLDER_NAME);
   const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(DRIVE_FOLDER_NAME);
+  const safeName = (row.candidateName || "candidate").replace(/[^\w\- ]/g, "").trim() || "candidate";
 
-  const safeName = (candidateName || "candidate").replace(/[^\w\- ]/g, "").trim() || "candidate";
-  const file = folder.createFile(`${safeName} — resume.txt`, resumeText, MimeType.PLAIN_TEXT);
+  let file;
+  if (hasFile) {
+    const bytes = Utilities.base64Decode(row.resumeFileBase64);
+    const mimeType = row.resumeMimeType || MimeType.PDF;
+    const ext = (row.resumeFileName || "").match(/\.[^.]+$/);
+    const blob = Utilities.newBlob(bytes, mimeType, `${safeName} — resume${ext ? ext[0] : ""}`);
+    file = folder.createFile(blob);
+  } else {
+    file = folder.createFile(`${safeName} — resume.txt`, row.resumeText, MimeType.PLAIN_TEXT);
+  }
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return file.getUrl();
 }

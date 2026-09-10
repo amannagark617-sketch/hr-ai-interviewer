@@ -110,6 +110,8 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [saving, setSaving] = useState(false);
   const [jdUploading, setJdUploading] = useState(false);
   const [loadingSample, setLoadingSample] = useState(false);
+  const [editingPhoneId, setEditingPhoneId] = useState(null);
+  const [phoneEditValue, setPhoneEditValue] = useState("");
   const fileInputRef = useRef(null);
   const jdFileInputRef = useRef(null);
 
@@ -182,6 +184,22 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const removeCandidate = async (id) => {
     await api.removeCandidate(id);
     refreshCandidates();
+  };
+
+  const startEditingPhone = (c) => {
+    setEditingPhoneId(c.id);
+    setPhoneEditValue(c.phone || "");
+  };
+
+  const savePhone = async (id) => {
+    try {
+      await api.updateCandidate(id, { phone: phoneEditValue.trim() });
+      refreshCandidates();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setEditingPhoneId(null);
+    }
   };
 
   const canRank = jd.trim().length > 0 && candidates.length > 0;
@@ -295,16 +313,42 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  gap: 12,
                   background: "var(--surface)",
                   border: "1px solid var(--border)",
                   borderRadius: 8,
                   padding: "10px 14px",
                 }}
               >
-                <div style={{ fontSize: 14 }}>
-                  {c.name}
-                  {!c.phone && <span style={{ color: "var(--faint)", fontSize: 12 }}> — no phone number yet</span>}
-                </div>
+                <div style={{ fontSize: 14, flex: 1, minWidth: 0 }}>{c.name}</div>
+                {editingPhoneId === c.id ? (
+                  <input
+                    autoFocus
+                    value={phoneEditValue}
+                    onChange={(e) => setPhoneEditValue(e.target.value)}
+                    onBlur={() => savePhone(c.id)}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    placeholder="+91XXXXXXXXXX"
+                    style={{ ...inputStyle, width: 170, padding: "6px 10px", fontSize: 13 }}
+                  />
+                ) : (
+                  <button
+                    onClick={() => startEditingPhone(c)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      padding: "4px 6px",
+                      borderRadius: 6,
+                      color: c.phone ? "var(--muted)" : "var(--rust)",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Click to edit phone number"
+                  >
+                    {c.phone || "no phone — click to add"}
+                  </button>
+                )}
                 <button onClick={() => removeCandidate(c.id)} aria-label={`Remove ${c.name}`} style={iconBtnStyle}>
                   ✕
                 </button>

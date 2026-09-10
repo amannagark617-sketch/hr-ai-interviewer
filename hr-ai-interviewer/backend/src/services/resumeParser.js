@@ -30,23 +30,35 @@ export function guessNameFromFilename(filename) {
     .trim();
 }
 
-// Matches phone-number-shaped runs of digits (optionally with a leading +, and separated by
-// spaces/dots/dashes/parens) — e.g. "+91 98765 43210", "(555) 123-4567", "555.123.4567".
-const PHONE_CANDIDATE_REGEX = /\+?\d[\d\-.\s()]{6,}\d/g;
+// Matches an Indian mobile number specifically: exactly 10 digits starting with 6-9, optionally
+// preceded by a +91/91 country code or a 0 trunk prefix. This is deliberately narrower than
+// "any 7-15 digit run" (the previous version) — that looser match was why calls were failing as
+// "out of region": it was just as likely to grab a bare 10-digit number with no country code (so
+// Plivo had nothing to dial against) or an unrelated digit run from the resume (a year range like
+// "2019-2023", a PIN code, etc.) as it was to find the real phone number.
+const INDIA_MOBILE_REGEX = /(?:\+?91[\s-]?|0)?([6-9]\d{9})\b/;
+// Fallback for a non-Indian number: only trust it if it has an explicit "+" country code, so
+// there's no ambiguity about which country to dial — an unprefixed foreign number is exactly the
+// kind of false match the India-specific pattern above is meant to avoid.
+const INTL_PHONE_REGEX = /\+\d[\d\-.\s()]{6,}\d/;
+
+function findPhone(source) {
+  const india = source.match(INDIA_MOBILE_REGEX);
+  // Resumes almost never write out the +91 themselves — always normalize to it. Handing Plivo a
+  // bare domestic-looking number with no country code is exactly what caused "out of region".
+  if (india) return `+91${india[1]}`;
+
+  const intl = source.match(INTL_PHONE_REGEX);
+  if (intl) return `+${intl[0].replace(/\D/g, "")}`;
+
+  return null;
+}
 
 function extractPhone(text) {
-  const candidates = text.match(PHONE_CANDIDATE_REGEX) || [];
-  let best = null;
-  for (const raw of candidates) {
-    const digits = raw.replace(/\D/g, "");
-    if (digits.length < 7 || digits.length > 15) continue;
-    // Prefer the first candidate with a country code (a leading "+") over a plain digit run —
-    // resumes often have a bare number elsewhere (e.g. a year range) that isn't the phone.
-    if (!best || (raw.trim().startsWith("+") && !best.startsWith("+"))) {
-      best = raw.trim().startsWith("+") ? `+${digits}` : digits;
-    }
-  }
-  return best || "";
+  // A line that actually looks like a phone/contact field is a much more reliable source than
+  // scanning the whole resume — far less likely to land on a year range or PIN code instead.
+  const labeledLine = text.split(/\r?\n/).find((line) => /\b(phone|mobile|contact|tel|cell|whatsapp)\b/i.test(line));
+  return (labeledLine && findPhone(labeledLine)) || findPhone(text) || "";
 }
 
 // A resume's own header (first non-empty line, or "Name: ..." on any of the first few lines) is

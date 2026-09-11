@@ -124,7 +124,7 @@ function logCall(row) {
     joinList(row.interviewConcerns),
     row.recordingUrl || "",
     row.interviewSummary || "",
-    new Date().toISOString(),
+    nowInIst(),
     row.role || "",
     row.callbackScheduledFor || "",
     row.callbackNote || "",
@@ -164,7 +164,7 @@ function saveCallback(cb) {
     cb.customQuestions || "",
     cb.scheduledFor || "",
     cb.note || "",
-    new Date().toISOString(),
+    nowInIst(),
   ];
 
   if (existingRow) {
@@ -231,6 +231,15 @@ function saveResumeToDrive(row) {
 
 function joinList(list) {
   return Array.isArray(list) ? list.join("; ") : list || "";
+}
+
+// new Date().toISOString() is always UTC — that's what was showing up as e.g.
+// "2026-09-11T13:37:58.576Z" in the sheet instead of the actual India time the call happened at
+// (13:37 UTC is 19:07 IST — 5 hours 30 minutes later, easy to misread as "wrong by hours" if you
+// don't do the offset math). Format explicitly in the India time zone instead, human-readable,
+// so "Logged at" matches what a HR person actually experienced on the clock.
+function nowInIst() {
+  return Utilities.formatDate(new Date(), "Asia/Kolkata", "dd MMM yyyy, HH:mm:ss 'IST'");
 }
 
 function formatDuration(seconds) {

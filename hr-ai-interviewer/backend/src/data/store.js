@@ -3,16 +3,23 @@
 // once you're past prototyping — the interface (the exported functions) is what matters,
 // keep it stable and the rest of the app doesn't need to change.
 
+import { nanoid } from "nanoid";
+import { deriveRoleTitleFromJobDescription } from "../services/roleTitle.js";
+
 const roles = new Map(); // id -> { id, title, jobDescription, customQuestions, createdAt }
 const candidates = new Map(); // id -> candidate (each carries roleId — which role it was added under)
 const calls = new Map(); // callId -> call job
+
+// Sentinel for "this role has never had a title set" — see setJobDescription below, which is what
+// actually names a role (auto-derived from the job description itself, never typed by hand).
+export const DEFAULT_ROLE_TITLE = "Untitled role";
 
 // Bootstrap one role so the app is immediately usable exactly like before roles existed — HR
 // isn't forced to "create a role" as an extra first step before pasting a job description.
 const DEFAULT_ROLE_ID = "default";
 roles.set(DEFAULT_ROLE_ID, {
   id: DEFAULT_ROLE_ID,
-  title: "Untitled role",
+  title: DEFAULT_ROLE_TITLE,
   jobDescription: "",
   customQuestions: "",
   createdAt: new Date().toISOString(),
@@ -62,9 +69,50 @@ export const store = {
   getJobDescription() {
     return roles.get(activeRoleId)?.jobDescription || "";
   },
+  // This is the ENTIRE "role" mechanism now — there's no UI for it at all (no picker, no "new
+  // role" button). Two things happen automatically, from the job description text alone:
+  //
+  // 1. Naming: the first time a role gets a job description, its title is derived from that JD
+  //    (see roleTitle.js) and locked in — never overwritten by a later edit, so it stays a stable
+  //    label for whichever round of candidates ends up under it.
+  //
+  // 2. Auto-splitting into a new round: HR has no explicit way to say "I'm starting a new
+  //    position" anymore, so this infers it — comparing the ROLE TITLE line (not the whole JD
+  //    text) of what's already stored against the incoming text. If they differ AND the current
+  //    role already has real candidates attached, this is treated as a genuinely different
+  //    position and gets its own fresh role instead of overwriting the in-progress one (which
+  //    would otherwise silently orphan those candidates' resume/call history from the JD they
+  //    were actually screened against). Title-only comparison (not whole-text) is deliberate: a
+  //    typo fix or a reworded paragraph deep in the same JD must never be mistaken for a new
+  //    role — only the title actually changing means a new role — and requiring existing
+  //    candidates first means normal incremental typing of a role's first-ever JD (nothing added
+  //    yet) never triggers a split either.
   setJobDescription(text) {
-    const role = roles.get(activeRoleId);
-    if (role) role.jobDescription = text;
+    let role = roles.get(activeRoleId);
+    if (!role) return;
+
+    const hasCandidates = Array.from(candidates.values()).some((c) => c.roleId === role.id);
+    const oldTitle = deriveRoleTitleFromJobDescription(role.jobDescription).toLowerCase();
+    const newTitle = deriveRoleTitleFromJobDescription(text).toLowerCase();
+    const isNewPosition = hasCandidates && oldTitle && newTitle && oldTitle !== newTitle;
+
+    if (isNewPosition) {
+      role = {
+        id: nanoid(),
+        title: DEFAULT_ROLE_TITLE,
+        jobDescription: "",
+        customQuestions: "",
+        createdAt: new Date().toISOString(),
+      };
+      roles.set(role.id, role);
+      activeRoleId = role.id;
+    }
+
+    role.jobDescription = text;
+    if (role.title === DEFAULT_ROLE_TITLE) {
+      const derived = deriveRoleTitleFromJobDescription(text);
+      if (derived) role.title = derived;
+    }
   },
   getCustomQuestions() {
     return roles.get(activeRoleId)?.customQuestions || "";

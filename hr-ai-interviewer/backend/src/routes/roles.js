@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { nanoid } from "nanoid";
-import { store } from "../data/store.js";
+import { store, DEFAULT_ROLE_TITLE } from "../data/store.js";
 
 export const rolesRouter = Router();
 
@@ -10,13 +10,14 @@ rolesRouter.get("/", (req, res) => {
 
 // Creates a new role (a self-contained hiring round: its own job description, custom questions,
 // and candidates) and switches to it immediately, so HR can start filling it in right away.
+// No title needed — the role is named automatically off its job description the moment one is
+// set (see store.setJobDescription), so there's nothing for HR to type here.
 rolesRouter.post("/", (req, res) => {
-  const { title } = req.body;
-  if (!title?.trim()) return res.status(400).json({ error: "title is required" });
+  const title = req.body?.title?.trim() || DEFAULT_ROLE_TITLE;
 
   const role = store.createRole({
     id: nanoid(),
-    title: title.trim(),
+    title,
     jobDescription: "",
     customQuestions: "",
     createdAt: new Date().toISOString(),

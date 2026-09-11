@@ -159,6 +159,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       setJd(jobDescription);
       setShowJdGenerator(false);
       setJdNotes("");
+      refreshCandidates();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -173,6 +174,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
     try {
       const { jobDescription } = await api.uploadJobDescription(file);
       setJd(jobDescription);
+      refreshCandidates();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -281,6 +283,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         <textarea
           value={jd}
           onChange={(e) => saveJd(e.target.value)}
+          onBlur={refreshCandidates}
           placeholder="Paste the full job description — responsibilities, required skills, seniority level..."
           style={{ ...inputStyle, minHeight: 140, resize: "vertical", marginBottom: 10 }}
         />

@@ -23,6 +23,29 @@ const SHEET_TAB = "Round 1"; // change if you want a different tab name
 const SECRET = "REPLACE_WITH_A_LONG_RANDOM_STRING";
 const DRIVE_FOLDER_NAME = "HR AI Interviewer — Resumes";
 
+// Used to durably park a candidate's "call me back later" request. The backend's own in-memory
+// store forgets everything on restart (see backend/src/data/store.js) — deliberately, since this
+// app runs on Cloud Run and paying to keep an instance always warm just to hold a few pending
+// callbacks in RAM isn't worth it. This sheet tab is the free alternative: the backend writes a
+// pending callback here the moment the candidate asks for one (see saveCallback below), and polls
+// it back (listCallbacks) to notice when one is due — surviving however many restarts happen in
+// between, at no extra cost. A row here carries everything needed to actually run that interview
+// again from scratch (resume text, job description, custom questions) since, after a restart, the
+// backend has no other record of what role or resume this candidate was even calling about.
+const CALLBACKS_TAB = "Pending Callbacks";
+const CALLBACK_HEADERS = [
+  "ID",
+  "Candidate",
+  "Phone",
+  "Role",
+  "Resume",
+  "Job description",
+  "Custom questions",
+  "Scheduled for",
+  "Note",
+  "Created at",
+];
+
 const HEADERS = [
   "Candidate",
   "Phone",
@@ -62,44 +85,115 @@ function doPost(e) {
       return jsonResponse({ ok: false, error: "Unauthorized" });
     }
 
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(SHEET_TAB);
-    if (!sheet) {
-      sheet = ss.insertSheet(SHEET_TAB);
-    }
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(HEADERS);
-    }
-
-    const row = body.row || {};
-    const resumeUrl = saveResumeToDrive(row);
-
-    sheet.appendRow([
-      row.candidateName || "",
-      row.phone || "",
-      row.resumeScore ?? "",
-      row.resumeVerdict || "",
-      joinList(row.resumePros),
-      joinList(row.resumeCons),
-      resumeUrl,
-      row.callStatus || "",
-      formatDuration(row.callDurationSeconds),
-      row.interviewScore ?? "",
-      row.recommendation || "",
-      joinList(row.interviewStrengths),
-      joinList(row.interviewConcerns),
-      row.recordingUrl || "",
-      row.interviewSummary || "",
-      new Date().toISOString(),
-      row.role || "",
-      row.callbackScheduledFor || "",
-      row.callbackNote || "",
-    ]);
-
-    return jsonResponse({ ok: true, resumeUrl });
+    // "action" is new — older backend deploys never send it and only ever meant "log a call
+    // result row", so that stays the default rather than requiring every caller to pass it.
+    const action = body.action || "logCall";
+    if (action === "saveCallback") return saveCallback(body.callback || {});
+    if (action === "clearCallback") return clearCallback(body.callbackId);
+    return logCall(body.row || {});
   } catch (err) {
     return jsonResponse({ ok: false, error: err.message });
   }
+}
+
+function logCall(row) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_TAB);
+  }
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(HEADERS);
+  }
+
+  const resumeUrl = saveResumeToDrive(row);
+
+  sheet.appendRow([
+    row.candidateName || "",
+    row.phone || "",
+    row.resumeScore ?? "",
+    row.resumeVerdict || "",
+    joinList(row.resumePros),
+    joinList(row.resumeCons),
+    resumeUrl,
+    row.callStatus || "",
+    formatDuration(row.callDurationSeconds),
+    row.interviewScore ?? "",
+    row.recommendation || "",
+    joinList(row.interviewStrengths),
+    joinList(row.interviewConcerns),
+    row.recordingUrl || "",
+    row.interviewSummary || "",
+    new Date().toISOString(),
+    row.role || "",
+    row.callbackScheduledFor || "",
+    row.callbackNote || "",
+  ]);
+
+  return jsonResponse({ ok: true, resumeUrl });
+}
+
+function getCallbacksSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CALLBACKS_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(CALLBACKS_TAB);
+  }
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(CALLBACK_HEADERS);
+  }
+  return sheet;
+}
+
+// Upsert-by-ID rather than a plain append — the interview agent can call request_callback more
+// than once for the same candidate (they re-schedule mid-call, or a later call re-requests one),
+// and each of those reuses the same call/candidate ID from the backend rather than minting a new
+// row every time.
+function saveCallback(cb) {
+  if (!cb.id) return jsonResponse({ ok: false, error: "callback.id is required" });
+
+  const sheet = getCallbacksSheet();
+  const existingRow = findCallbackRow(sheet, cb.id);
+  const values = [
+    cb.id,
+    cb.candidateName || "",
+    cb.phone || "",
+    cb.roleTitle || "",
+    cb.resumeText || "",
+    cb.jobDescription || "",
+    cb.customQuestions || "",
+    cb.scheduledFor || "",
+    cb.note || "",
+    new Date().toISOString(),
+  ];
+
+  if (existingRow) {
+    sheet.getRange(existingRow, 1, 1, values.length).setValues([values]);
+  } else {
+    sheet.appendRow(values);
+  }
+  return jsonResponse({ ok: true });
+}
+
+// Called once the backend has actually placed the callback (or the candidate's record already
+// covers it locally and there's nothing left to recover) — without this, the same row would keep
+// coming back from listCallbacks and get redialed on every future poll.
+function clearCallback(id) {
+  if (!id) return jsonResponse({ ok: false, error: "callbackId is required" });
+  const sheet = getCallbacksSheet();
+  const row = findCallbackRow(sheet, id);
+  if (row) sheet.deleteRow(row);
+  return jsonResponse({ ok: true });
+}
+
+function findCallbackRow(sheet, id) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (ids[i][0] === id) return i + 2; // +1 for header row, +1 for 0-index
+  }
+  return null;
 }
 
 // Saves the candidate's resume to Drive (in a dedicated folder, created on first use) and
@@ -146,8 +240,36 @@ function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// Lets you open the Web app URL directly in a browser to sanity-check it's deployed.
-function doGet() {
+// With no query params, this just lets you open the Web app URL directly in a browser to
+// sanity-check it's deployed. ?action=listCallbacks&secret=... (used by callbackScheduler.js on
+// the backend) returns every still-pending callback row instead, so the backend can notice one is
+// due even after losing its own in-memory record of it.
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (params.action === "listCallbacks") {
+    if (params.secret !== SECRET) {
+      return jsonResponse({ ok: false, error: "Unauthorized" });
+    }
+    const sheet = getCallbacksSheet();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return jsonResponse({ ok: true, callbacks: [] });
+
+    const rows = sheet.getRange(2, 1, lastRow - 1, CALLBACK_HEADERS.length).getValues();
+    const callbacks = rows.map((r) => ({
+      id: r[0],
+      candidateName: r[1],
+      phone: r[2],
+      roleTitle: r[3],
+      resumeText: r[4],
+      jobDescription: r[5],
+      customQuestions: r[6],
+      scheduledFor: r[7],
+      note: r[8],
+      createdAt: r[9],
+    }));
+    return jsonResponse({ ok: true, callbacks });
+  }
+
   return jsonResponse({ ok: true, message: "HR interviewer logging endpoint is live." });
 }
 

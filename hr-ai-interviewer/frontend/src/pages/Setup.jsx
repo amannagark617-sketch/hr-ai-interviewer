@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
+import { IconDocument, IconHelpCircle, IconUpload, IconUsers, IconWand } from "../icons.jsx";
 
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 500, color: "var(--muted)", marginBottom: 8 };
 const inputStyle = {
@@ -36,18 +37,6 @@ const secondaryBtnStyle = {
   borderRadius: "var(--radius-pill)",
   cursor: "pointer",
 };
-const sampleBtnStyle = {
-  display: "inline-flex",
-  alignItems: "center",
-  padding: "10px 20px",
-  fontSize: 14,
-  fontWeight: 500,
-  background: "var(--accent)",
-  color: "var(--bg)",
-  border: "none",
-  borderRadius: "var(--radius-pill)",
-  cursor: "pointer",
-};
 const iconBtnStyle = {
   display: "flex",
   alignItems: "center",
@@ -61,47 +50,6 @@ const iconBtnStyle = {
   color: "var(--faint)",
 };
 
-const SAMPLE_JD = `Senior Full-Stack Engineer
-
-We're looking for a Senior Full-Stack Engineer to join our product team. You'll own features end-to-end across a React/TypeScript frontend and a Node.js backend, mentor junior engineers, and help shape our technical roadmap.
-
-Responsibilities:
-- Design, build, and ship full-stack features from database to UI
-- Review code and mentor other engineers on the team
-- Collaborate with product and design to scope and estimate work
-- Improve system performance, reliability, and test coverage
-
-Required skills:
-- 5+ years of professional software engineering experience
-- Strong proficiency in JavaScript/TypeScript, React, and Node.js
-- Experience designing REST or GraphQL APIs and relational databases (PostgreSQL/MySQL)
-- Comfortable with cloud infrastructure (AWS or GCP) and CI/CD pipelines
-
-Nice to have:
-- Experience with real-time systems (WebSockets, streaming)
-- Prior experience mentoring or leading a small team`;
-
-const SAMPLE_CANDIDATES = [
-  {
-    name: "Priya Sharma",
-    phone: "+91 98765 43210",
-    resumeText:
-      "Priya Sharma — Senior Software Engineer, 7 years experience. Led full-stack development of a React/Node.js SaaS platform serving 200k+ users. Designed REST APIs, PostgreSQL schemas, and AWS deployment pipelines. Mentored 3 junior engineers. Previously built real-time collaboration features using WebSockets. B.Tech in Computer Science, IIT Delhi.",
-  },
-  {
-    name: "Marcus Chen",
-    phone: "+91 91234 56789",
-    resumeText:
-      "Marcus Chen — Full-Stack Developer, 3 years experience. Built and maintained React frontends and Express APIs for an e-commerce startup. Comfortable with TypeScript and MySQL, some exposure to AWS via Elastic Beanstalk. Has not led a team or worked on large-scale systems yet. B.S. in Information Technology.",
-  },
-  {
-    name: "Ananya Iyer",
-    phone: "+91 99887 66554",
-    resumeText:
-      "Ananya Iyer — Staff Engineer, 9 years experience. Architected microservices in Node.js and TypeScript, GraphQL APIs, and CI/CD pipelines on GCP. Led a team of 5 engineers, drove adoption of automated testing across the org. Deep experience with distributed systems and streaming data pipelines. M.S. in Computer Science, Stanford.",
-  },
-];
-
 export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank }) {
   const [nameField, setNameField] = useState("");
   const [phoneField, setPhoneField] = useState("");
@@ -109,7 +57,6 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [jdUploading, setJdUploading] = useState(false);
-  const [loadingSample, setLoadingSample] = useState(false);
   const [showJdGenerator, setShowJdGenerator] = useState(false);
   const [jdNotes, setJdNotes] = useState("");
   const [jdGenerating, setJdGenerating] = useState(false);
@@ -124,22 +71,6 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
   useEffect(() => {
     api.getCustomQuestions().then((r) => setCustomQuestions(r.customQuestions || "")).catch(() => {});
   }, []);
-
-  const loadSampleData = async () => {
-    setError("");
-    setLoadingSample(true);
-    try {
-      await saveJd(SAMPLE_JD);
-      for (const c of SAMPLE_CANDIDATES) {
-        await api.addCandidate(c.name, c.resumeText, c.phone);
-      }
-      refreshCandidates();
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoadingSample(false);
-    }
-  };
 
   const saveJd = async (value) => {
     setJd(value);
@@ -257,29 +188,32 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
 
   return (
     <div style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px 80px" }}>
-      {!jd.trim() && candidates.length === 0 && (
-        <section
-          style={{
-            marginBottom: 32,
-            padding: 20,
-            border: "1px dashed var(--border)",
-            borderRadius: "var(--radius-lg)",
-          }}
-        >
-          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
-            Quick start: try with sample data
-          </div>
-          <div style={{ fontSize: 13.5, color: "var(--muted)", marginBottom: 14 }}>
-            Populate a Senior Full-Stack role with 3 diverse resumes to see Gemini AI screening in action.
-          </div>
-          <button onClick={loadSampleData} disabled={loadingSample} style={sampleBtnStyle}>
-            {loadingSample ? "Loading..." : "Load sample role & candidates"}
-          </button>
-        </section>
-      )}
+      <div
+        className="fade-in"
+        style={{
+          marginBottom: 32,
+          padding: "22px 24px",
+          borderRadius: "var(--radius-lg)",
+          background: "linear-gradient(135deg, var(--accent-soft), var(--surface) 65%)",
+          border: "1px solid var(--border-soft)",
+        }}
+      >
+        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", marginBottom: 4 }}>
+          Set up this hiring round
+        </div>
+        <div style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.6 }}>
+          Add a job description and candidates below — Gemini screens every resume against it automatically,
+          and the round is named for you from the title on the job description.
+        </div>
+      </div>
 
-      <section style={{ marginBottom: 32 }}>
-        <label style={labelStyle}>Job description</label>
+      <section className="fade-in lift-on-hover" style={{ marginBottom: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+          <span className="icon-badge" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+            <IconDocument />
+          </span>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>Job description</label>
+        </div>
         <textarea
           value={jd}
           onChange={(e) => saveJd(e.target.value)}
@@ -289,6 +223,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         />
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button onClick={() => jdFileInputRef.current?.click()} disabled={jdUploading} style={secondaryBtnStyle}>
+            <IconUpload style={{ marginRight: 7 }} />
             {jdUploading ? "Reading file..." : "Upload job description (.pdf, .docx, .txt)"}
           </button>
           <input
@@ -303,12 +238,13 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
           />
           <span style={{ fontSize: 13, color: "var(--faint)" }}>or</span>
           <button onClick={() => setShowJdGenerator((v) => !v)} style={secondaryBtnStyle}>
+            <IconWand style={{ marginRight: 7 }} />
             Generate with AI
           </button>
         </div>
 
         {showJdGenerator && (
-          <div style={{ marginTop: 12, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
+          <div className="fade-in" style={{ marginTop: 12, background: "var(--surface-raised)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
             <label style={labelStyle}>Describe the role — title, seniority, tech stack, anything specific</label>
             <textarea
               value={jdNotes}
@@ -328,10 +264,15 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         )}
       </section>
 
-      <section style={{ marginBottom: 32 }}>
-        <label style={labelStyle}>
-          Custom interview questions <span style={{ fontWeight: 400, color: "var(--faint)" }}>(optional)</span>
-        </label>
+      <section className="fade-in lift-on-hover" style={{ marginBottom: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <span className="icon-badge" style={{ background: "var(--amber-soft)", color: "var(--amber)" }}>
+            <IconHelpCircle />
+          </span>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>
+            Custom interview questions <span style={{ fontWeight: 400, color: "var(--faint)" }}>(optional)</span>
+          </label>
+        </div>
         <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
           The AI always asks questions grounded in the job description and each candidate's resume. Add
           questions here — paste them or upload a file — and it will ask every one of them too, on every
@@ -345,6 +286,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         />
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button onClick={() => customQuestionsFileInputRef.current?.click()} disabled={customQuestionsUploading} style={secondaryBtnStyle}>
+            <IconUpload style={{ marginRight: 7 }} />
             {customQuestionsUploading ? "Reading file..." : "Upload questions (.pdf, .docx, .txt)"}
           </button>
           <input
@@ -365,9 +307,14 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         </div>
       </section>
 
-      <section style={{ marginBottom: 24 }}>
-        <label style={labelStyle}>Add a candidate</label>
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 16 }}>
+      <section className="fade-in lift-on-hover" style={{ marginBottom: 24, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+          <span className="icon-badge" style={{ background: "var(--success-soft)", color: "var(--success)" }}>
+            <IconUsers />
+          </span>
+          <label style={{ ...labelStyle, marginBottom: 0 }}>Add a candidate</label>
+        </div>
+        <div>
           <input
             value={nameField}
             onChange={(e) => setNameField(e.target.value)}
@@ -392,6 +339,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
             </button>
             <span style={{ fontSize: 13, color: "var(--faint)" }}>or</span>
             <button onClick={() => fileInputRef.current?.click()} style={secondaryBtnStyle}>
+              <IconUpload style={{ marginRight: 7 }} />
               Upload files (.pdf, .docx, .txt)
             </button>
             <input
@@ -410,18 +358,31 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
       </section>
 
       {error && (
-        <div style={{ fontSize: 13, color: "var(--rust)", marginBottom: 20 }}>{error}</div>
+        <div
+          className="fade-in"
+          style={{
+            fontSize: 13,
+            color: "var(--rust)",
+            background: "var(--rust-soft)",
+            borderRadius: "var(--radius-md)",
+            padding: "10px 14px",
+            marginBottom: 20,
+          }}
+        >
+          {error}
+        </div>
       )}
 
       {candidates.length > 0 && (
-        <section style={{ marginBottom: 32 }}>
+        <section className="fade-in" style={{ marginBottom: 32 }}>
           <label style={labelStyle}>
             {candidates.length} candidate{candidates.length !== 1 ? "s" : ""} added
           </label>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="fade-in-group" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {candidates.map((c) => (
               <div
                 key={c.id}
+                className="lift-on-hover"
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -433,7 +394,26 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
                   padding: "10px 14px",
                 }}
               >
-                <div style={{ fontSize: 14, flex: 1, minWidth: 0 }}>{c.name}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 30,
+                      height: 30,
+                      borderRadius: "var(--radius-pill)",
+                      background: "var(--accent-soft)",
+                      color: "var(--accent)",
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {(c.name || "?").trim().slice(0, 1).toUpperCase()}
+                  </span>
+                  <div style={{ fontSize: 14, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+                </div>
                 {editingPhoneId === c.id ? (
                   <input
                     autoFocus
@@ -471,7 +451,16 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank
         </section>
       )}
 
-      <button onClick={onRank} disabled={!canRank} style={primaryBtnStyle}>
+      <button
+        onClick={onRank}
+        disabled={!canRank}
+        className={canRank ? "glow-ring" : undefined}
+        style={{
+          ...primaryBtnStyle,
+          background: canRank ? "linear-gradient(135deg, var(--accent), var(--accent-hover))" : "var(--accent)",
+          boxShadow: canRank ? "0 10px 26px rgba(0,113,227,0.28)" : "none",
+        }}
+      >
         Rank {candidates.length || ""} candidate{candidates.length !== 1 ? "s" : ""} against this role
       </button>
     </div>

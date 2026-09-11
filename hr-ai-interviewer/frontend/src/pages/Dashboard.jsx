@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api.js";
+import {
+  IconCheckCircle,
+  IconClock,
+  IconGrid,
+  IconPhoneCall,
+  IconRefresh,
+  IconSparkChart,
+  IconTrendUp,
+} from "../icons.jsx";
 
 // Minimal RFC4180-ish CSV parser (quoted fields, embedded commas/newlines, "" escaping) — no
 // dependency needed for a sheet this small, and Google Sheets' own CSV export follows this
@@ -89,13 +98,59 @@ const STATUS_COLORS = {
 };
 
 const tileStyle = {
+  position: "relative",
+  overflow: "hidden",
   background: "var(--surface)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius-lg)",
   padding: "16px 18px",
   flex: 1,
-  minWidth: 140,
+  minWidth: 150,
 };
+
+// One accent color per stat tile — purely decorative, keeps each tile visually distinct at a
+// glance instead of five identical white boxes in a row.
+const STAT_TILES = [
+  { key: "total", label: "Candidates logged", icon: IconGrid, color: "var(--accent)", bg: "var(--accent-soft)" },
+  { key: "completed", label: "Calls completed", icon: IconPhoneCall, color: "var(--call)", bg: "#FBF0DE" },
+  { key: "avgResume", label: "Avg resume score", icon: IconSparkChart, color: "var(--success)", bg: "var(--success-soft)" },
+  { key: "avgInterview", label: "Avg interview score", icon: IconTrendUp, color: "var(--amber)", bg: "var(--amber-soft)" },
+  { key: "avgDuration", label: "Avg call duration", icon: IconClock, color: "var(--rust)", bg: "var(--rust-soft)" },
+];
+
+// Small reusable section heading: an icon badge + label, used above every card/table on this page
+// so each section reads as its own distinct block instead of a plain bold line.
+function SectionLabel({ icon: Icon, color, bg, children }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+      <span className="icon-badge" style={{ width: 26, height: 26, background: bg, color }}>
+        <Icon width={14} height={14} />
+      </span>
+      <label style={{ ...labelStyle, marginBottom: 0 }}>{children}</label>
+    </div>
+  );
+}
+
+function StatusPill({ label, color, bg }) {
+  if (!label) return null;
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        fontSize: 12,
+        fontWeight: 500,
+        color,
+        background: bg,
+        borderRadius: "var(--radius-pill)",
+        padding: "3px 10px",
+        textTransform: "capitalize",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
 
 const columns = [
   { key: "Candidate", label: "Candidate" },
@@ -156,8 +211,21 @@ export default function Dashboard() {
   if (notConfigured) {
     return (
       <div style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px 80px" }}>
-        <div style={{ background: "var(--surface)", border: "1px dashed var(--border)", borderRadius: "var(--radius-lg)", padding: 20 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Connect your Google Sheet</div>
+        <div
+          className="fade-in"
+          style={{
+            background: "linear-gradient(135deg, var(--accent-soft), var(--surface) 65%)",
+            border: "1px dashed var(--border)",
+            borderRadius: "var(--radius-lg)",
+            padding: 22,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+            <span className="icon-badge" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+              <IconSparkChart />
+            </span>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>Connect your Google Sheet</div>
+          </div>
           <div style={{ fontSize: 13.5, color: "var(--muted)", lineHeight: 1.7 }}>
             In your Google Sheet: <strong>File → Share → Publish to web</strong>, pick the <strong>"Round 1"</strong> tab,
             choose <strong>CSV</strong> as the format, and publish. Copy the URL it gives you, then set it as{" "}
@@ -188,16 +256,27 @@ export default function Dashboard() {
     ? average(filteredRows.map((r) => parseDuration(r["Call duration"])).filter((s) => s != null))
     : null;
 
+  const statValues = {
+    total,
+    completed,
+    avgResume: avgResumeScore ?? "—",
+    avgInterview: avgInterviewScore ?? "—",
+    avgDuration: avgCallDurationSeconds != null ? formatDuration(Math.round(avgCallDurationSeconds)) : "—",
+  };
+
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: "32px 24px 80px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-        <label style={labelStyle}>Overview</label>
+      <div className="fade-in" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em" }}>Dashboard</div>
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>Live from your Google Sheet</div>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {roleSummaries.length > 1 && (
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              style={{ fontSize: 13, padding: "5px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)" }}
+              style={{ fontSize: 13, padding: "6px 12px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)" }}
             >
               <option value="">All roles</option>
               {roleSummaries.map((s) => (
@@ -205,73 +284,87 @@ export default function Dashboard() {
               ))}
             </select>
           )}
-          <button onClick={load} disabled={loading} style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 13, cursor: "pointer" }}>
+          <button
+            onClick={load}
+            disabled={loading}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-pill)",
+              padding: "6px 14px",
+              color: "var(--ink)",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: loading ? "default" : "pointer",
+            }}
+          >
+            <IconRefresh className={loading ? "spin" : undefined} />
             {loading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </div>
 
-      {error && <div style={{ fontSize: 13, color: "var(--rust)", marginBottom: 20 }}>{error}</div>}
+      {error && (
+        <div className="fade-in" style={{ fontSize: 13, color: "var(--rust)", background: "var(--rust-soft)", borderRadius: "var(--radius-md)", padding: "10px 14px", marginBottom: 20 }}>
+          {error}
+        </div>
+      )}
 
       {rows && (
         <>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
-            <div style={tileStyle}>
-              <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 6 }}>Candidates logged</div>
-              <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>{total}</div>
-            </div>
-            <div style={tileStyle}>
-              <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 6 }}>Calls completed</div>
-              <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>{completed}</div>
-            </div>
-            <div style={tileStyle}>
-              <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 6 }}>Avg resume score</div>
-              <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>{avgResumeScore ?? "—"}</div>
-            </div>
-            <div style={tileStyle}>
-              <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 6 }}>Avg interview score</div>
-              <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>{avgInterviewScore ?? "—"}</div>
-            </div>
-            <div style={tileStyle}>
-              <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 6 }}>Avg call duration</div>
-              <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>
-                {avgCallDurationSeconds != null ? formatDuration(Math.round(avgCallDurationSeconds)) : "—"}
+          <div className="fade-in-group" style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
+            {STAT_TILES.map(({ key, label, icon: Icon, color, bg }) => (
+              <div key={key} className="lift-on-hover" style={tileStyle}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, color: "var(--faint)" }}>{label}</div>
+                  <span className="icon-badge" style={{ width: 26, height: 26, background: bg, color }}>
+                    <Icon width={14} height={14} />
+                  </span>
+                </div>
+                <div className="serif" style={{ fontSize: 26, fontWeight: 600 }}>{statValues[key]}</div>
               </div>
-            </div>
+            ))}
           </div>
 
-          <section style={{ marginBottom: 32 }}>
-            <label style={labelStyle}>Recommendation breakdown</label>
-            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-              {Object.entries(STATUS_COLORS).map(([key, { color, bg, label }]) => (
-                <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span style={{ width: 64, fontSize: 12.5, fontWeight: 500, color: "var(--muted)" }}>{label}</span>
-                  <div style={{ flex: 1, background: bg, borderRadius: 6, height: 22, position: "relative" }}>
-                    <div
-                      style={{
-                        width: `${(counts[key] / maxCount) * 100}%`,
-                        minWidth: counts[key] > 0 ? 6 : 0,
-                        height: "100%",
-                        background: color,
-                        borderRadius: 6,
-                        transition: "width 0.3s",
-                      }}
-                    />
+          <section className="fade-in" style={{ marginBottom: 32 }}>
+            <SectionLabel icon={IconTrendUp} color="var(--accent)" bg="var(--accent-soft)">Recommendation breakdown</SectionLabel>
+            <div className="lift-on-hover" style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+              {Object.entries(STATUS_COLORS).map(([key, { color, bg, label }]) => {
+                const pct = total > 0 ? Math.round((counts[key] / total) * 100) : 0;
+                return (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ width: 64, fontSize: 12.5, fontWeight: 500, color: "var(--muted)" }}>{label}</span>
+                    <div style={{ flex: 1, background: bg, borderRadius: "var(--radius-pill)", height: 24, position: "relative", overflow: "hidden" }}>
+                      <div
+                        style={{
+                          width: `${(counts[key] / maxCount) * 100}%`,
+                          minWidth: counts[key] > 0 ? 10 : 0,
+                          height: "100%",
+                          background: `linear-gradient(90deg, ${color}, ${color})`,
+                          borderRadius: "var(--radius-pill)",
+                          transition: "width 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
+                        }}
+                      />
+                    </div>
+                    <span style={{ width: 20, textAlign: "right", fontSize: 13, fontWeight: 600 }}>{counts[key]}</span>
+                    <span style={{ width: 36, textAlign: "right", fontSize: 12, color: "var(--faint)" }}>{pct}%</span>
                   </div>
-                  <span style={{ width: 24, textAlign: "right", fontSize: 13, fontWeight: 500 }}>{counts[key]}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 
           {roleSummaries.length > 1 && (
-            <section style={{ marginBottom: 32 }}>
-              <label style={labelStyle}>By role</label>
-              <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
+            <section className="fade-in" style={{ marginBottom: 32 }}>
+              <SectionLabel icon={IconGrid} color="var(--amber)" bg="var(--amber-soft)">By role</SectionLabel>
+              <div className="lift-on-hover" style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["Role", "Logged", "Completed", "Advance", "Hold", "Reject"].map((h) => (
+                      {["Role", "Logged", "Completed", "Advance", "Hold", "Reject", ""].map((h) => (
                         <th key={h} style={{ textAlign: "left", padding: "10px 12px", color: "var(--faint)", fontWeight: 500, whiteSpace: "nowrap" }}>
                           {h}
                         </th>
@@ -283,14 +376,25 @@ export default function Dashboard() {
                       <tr
                         key={s.role}
                         onClick={() => setRoleFilter(roleFilter === s.role ? "" : s.role)}
-                        style={{ borderBottom: "1px solid var(--border-soft)", cursor: "pointer", background: roleFilter === s.role ? "var(--surface-raised)" : "transparent" }}
+                        style={{ borderBottom: "1px solid var(--border-soft)", cursor: "pointer", background: roleFilter === s.role ? "var(--surface-raised)" : "transparent", transition: "background var(--motion-fast)" }}
                       >
                         <td style={{ padding: "10px 12px", fontWeight: 500 }}>{s.role}</td>
                         <td style={{ padding: "10px 12px" }}>{s.total}</td>
                         <td style={{ padding: "10px 12px" }}>{s.completed}</td>
-                        <td style={{ padding: "10px 12px", color: "var(--success)" }}>{s.advance}</td>
-                        <td style={{ padding: "10px 12px", color: "var(--amber)" }}>{s.hold}</td>
-                        <td style={{ padding: "10px 12px", color: "var(--rust)" }}>{s.reject}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--success)", fontWeight: 500 }}>{s.advance}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--amber)", fontWeight: 500 }}>{s.hold}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--rust)", fontWeight: 500 }}>{s.reject}</td>
+                        <td style={{ padding: "10px 12px", width: 90 }}>
+                          <div style={{ display: "flex", height: 6, borderRadius: "var(--radius-pill)", overflow: "hidden", background: "var(--surface-raised)" }}>
+                            {s.total > 0 && (
+                              <>
+                                <div style={{ width: `${(s.advance / s.total) * 100}%`, background: "var(--success)" }} />
+                                <div style={{ width: `${(s.hold / s.total) * 100}%`, background: "var(--amber)" }} />
+                                <div style={{ width: `${(s.reject / s.total) * 100}%`, background: "var(--rust)" }} />
+                              </>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -299,11 +403,11 @@ export default function Dashboard() {
             </section>
           )}
 
-          <section>
-            <label style={labelStyle}>
+          <section className="fade-in">
+            <SectionLabel icon={IconCheckCircle} color="var(--success)" bg="var(--success-soft)">
               All logged candidates <span style={{ fontWeight: 400, color: "var(--faint)" }}>— click a row for the full detail</span>
-            </label>
-            <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
+            </SectionLabel>
+            <div className="lift-on-hover" style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--border)" }}>
@@ -317,21 +421,38 @@ export default function Dashboard() {
                 <tbody>
                   {filteredRows.map((r, i) => {
                     const isOpen = expanded === i;
+                    const recKey = (r["Recommendation"] || "").toLowerCase();
+                    const rec = STATUS_COLORS[recKey];
                     return (
                       <React.Fragment key={i}>
                         <tr
                           onClick={() => setExpanded(isOpen ? null : i)}
-                          style={{ borderBottom: isOpen ? "none" : "1px solid var(--border-soft)", cursor: "pointer", background: isOpen ? "var(--surface-raised)" : "transparent" }}
+                          style={{
+                            borderBottom: isOpen ? "none" : "1px solid var(--border-soft)",
+                            cursor: "pointer",
+                            background: isOpen ? "var(--surface-raised)" : "transparent",
+                            transition: "background var(--motion-fast)",
+                          }}
+                          onMouseEnter={(e) => { if (!isOpen) e.currentTarget.style.background = "var(--border-soft)"; }}
+                          onMouseLeave={(e) => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}
                         >
                           <td style={{ padding: "10px 12px", fontWeight: 500 }}>{r["Candidate"]}</td>
                           <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--muted)" }}>{r["Role"]}</td>
                           <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--muted)" }}>{r["Phone"]}</td>
                           <td style={{ padding: "10px 12px" }}>{r["Resume score"]}</td>
-                          <td style={{ padding: "10px 12px", textTransform: "capitalize" }}>{r["Call status"]}</td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <StatusPill
+                              label={r["Call status"]}
+                              color={r["Call status"] === "completed" ? "var(--success)" : "var(--muted)"}
+                              bg={r["Call status"] === "completed" ? "var(--success-soft)" : "var(--surface-raised)"}
+                            />
+                          </td>
                           <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>{r["Call duration"] || "—"}</td>
                           <td style={{ padding: "10px 12px" }}>{r["Interview score"]}</td>
-                          <td style={{ padding: "10px 12px", textTransform: "capitalize" }}>{r["Recommendation"]}</td>
-                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--faint)" }}>{r["Logged at"]?.slice(0, 16).replace("T", " ")}</td>
+                          <td style={{ padding: "10px 12px" }}>
+                            {r["Recommendation"] ? <StatusPill label={r["Recommendation"]} color={rec?.color || "var(--muted)"} bg={rec?.bg || "var(--surface-raised)"} /> : null}
+                          </td>
+                          <td style={{ padding: "10px 12px", whiteSpace: "nowrap", color: "var(--faint)" }}>{r["Logged at"]}</td>
                         </tr>
                         {isOpen && (
                           <tr style={{ borderBottom: "1px solid var(--border-soft)", background: "var(--surface-raised)" }}>
@@ -370,10 +491,10 @@ function DetailPanel({ row }) {
   const callbackFor = row["Callback requested for"];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 760 }}>
+    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 760 }}>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {resumeLink && (
-          <a href={resumeLink} target="_blank" rel="noreferrer" style={linkPillStyle}>
+          <a href={resumeLink} target="_blank" rel="noreferrer" className="lift-on-hover" style={linkPillStyle}>
             Open resume
           </a>
         )}

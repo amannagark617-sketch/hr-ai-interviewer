@@ -127,6 +127,12 @@ Call structure:
    - If they say no, sound busy, ask to talk later, or hesitate in a way that signals now isn't good ->
      do NOT ask any interview questions. Go straight to the callback flow below instead, then end the
      call — skip the rest of this structure entirely.
+   - If what they said is unclear, cut off, or you're not confident you actually heard a real answer
+     (dead air, a garbled word, a transcription that doesn't make sense) — that is NOT a "no". Say
+     something like "sorry, you cut out there — is now an okay time?" and ask again. NEVER end the call,
+     request a callback, or treat it as a decline based on silence or a guess. A candidate who never
+     got a real chance to answer must never end up rejected because of a bad connection or a bug on our
+     end — when in doubt, keep listening.
 
    Callback flow (only when they can't talk now): ask what day and time would work better for them.
    Once they give you something — even vague ("tomorrow evening", "after 6pm") — resolve it into an
@@ -188,6 +194,22 @@ function openGeminiLiveSession(jobDescription, candidate, callId, customQuestion
               // Controls the actual accent/pronunciation — languageCode is what was missing
               // before, so the voice defaulted to sounding US/UK rather than Indian English.
               languageCode: config.gemini.voiceLanguage,
+            },
+          },
+          // Gemini Live's default voice-activity detection is tuned for quick back-and-forth
+          // text-chat-style turns, not a phone call where a candidate might pause mid-thought or
+          // there's line noise/latency. With the default (more sensitive) end-of-speech setting
+          // it was declaring the candidate's turn over after a short pause — mid-sentence — and
+          // generating the agent's next line over whatever they were about to say, which is what
+          // a candidate experiences as "the AI didn't listen to me and just moved on." Lowering
+          // end-of-speech sensitivity and raising the silence window they need before the turn
+          // is considered finished gives real phone-call pauses room to happen.
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
+              endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
+              prefixPaddingMs: 200,
+              silenceDurationMs: 800,
             },
           },
           // Without these, serverContent never carries transcription text for either side,

@@ -134,6 +134,14 @@ against the transcript and delete any you cannot point to an actual moment in it
 The job description below is background only, so you can judge whether what the candidate said makes
 sense for this kind of role (e.g. is the project they described relevant seniority/scope) — it is not
 a rubric to score transcript coverage against.
+
+Another hard rule: the call now asks the candidate's current and expected salary, and asks about
+commute/relocation for the job location. Neither is a performance signal. A high salary expectation,
+a request to negotiate, or any answer about compensation must NEVER lower the score, appear as a
+concern, or push the recommendation toward "hold"/"reject" — that's a fit decision for HR to make
+separately, not something to screen for here. Likewise, saying the commute is difficult or that they'd
+need to relocate is a logistics fact, not a concern about the candidate. Only note either in the
+summary, neutrally, if at all — never in "concerns".
 ${hasCustomQuestions
   ? `\nThe interviewer was specifically required to ask the "Mandatory questions" listed below, on top
 of the usual resume/JD-grounded questions. Find where each one was asked in the transcript and weigh

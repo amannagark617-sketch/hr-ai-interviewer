@@ -102,7 +102,7 @@ const SAMPLE_CANDIDATES = [
   },
 ];
 
-export default function Setup({ jd, setJd, candidates, refreshCandidates, refreshRoles, onRank }) {
+export default function Setup({ jd, setJd, candidates, refreshCandidates, onRank }) {
   const [nameField, setNameField] = useState("");
   const [phoneField, setPhoneField] = useState("");
   const [resumeField, setResumeField] = useState("");
@@ -130,7 +130,6 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, refres
     setLoadingSample(true);
     try {
       await saveJd(SAMPLE_JD);
-      refreshRoles?.();
       for (const c of SAMPLE_CANDIDATES) {
         await api.addCandidate(c.name, c.resumeText, c.phone);
       }
@@ -160,7 +159,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, refres
       setJd(jobDescription);
       setShowJdGenerator(false);
       setJdNotes("");
-      refreshRoles?.();
+      refreshCandidates();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -175,7 +174,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, refres
     try {
       const { jobDescription } = await api.uploadJobDescription(file);
       setJd(jobDescription);
-      refreshRoles?.();
+      refreshCandidates();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -284,7 +283,7 @@ export default function Setup({ jd, setJd, candidates, refreshCandidates, refres
         <textarea
           value={jd}
           onChange={(e) => saveJd(e.target.value)}
-          onBlur={() => refreshRoles?.()}
+          onBlur={refreshCandidates}
           placeholder="Paste the full job description — responsibilities, required skills, seniority level..."
           style={{ ...inputStyle, minHeight: 140, resize: "vertical", marginBottom: 10 }}
         />

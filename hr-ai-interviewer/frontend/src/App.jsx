@@ -36,10 +36,10 @@ export default function App() {
   const [jd, setJd] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [rankError, setRankError] = useState("");
-  const [roles, setRoles] = useState([]);
-  const [activeRoleId, setActiveRoleId] = useState(null);
-  const [roleError, setRoleError] = useState("");
 
+  // There's no role picker anymore — the backend tracks "hiring rounds" entirely on its own,
+  // auto-naming and auto-splitting them from the job description text alone (see
+  // store.setJobDescription). The frontend just always asks for "whatever's currently active."
   const refreshCandidates = useCallback(async () => {
     try {
       const { candidates } = await api.listCandidates();
@@ -49,56 +49,10 @@ export default function App() {
     }
   }, []);
 
-  // Loads whatever the CURRENTLY active role's data is — used both on first mount and every time
-  // the active role changes (switching roles, adding one, deleting one), since Setup/Results/Calls
-  // are all scoped server-side to "the active role" and need to reload in step.
-  const loadForActiveRole = useCallback(async () => {
+  useEffect(() => {
     api.getJobDescription().then((r) => setJd(r.jobDescription || "")).catch(() => {});
     refreshCandidates();
   }, [refreshCandidates]);
-
-  const refreshRoles = useCallback(async () => {
-    try {
-      const { roles, activeRoleId } = await api.listRoles();
-      setRoles(roles);
-      setActiveRoleId(activeRoleId);
-    } catch {
-      // backend not reachable yet — surfaced elsewhere
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshRoles();
-    loadForActiveRole();
-  }, [refreshRoles, loadForActiveRole]);
-
-  const switchRole = async (roleId) => {
-    if (roleId === activeRoleId) return;
-    setRoleError("");
-    try {
-      await api.setActiveRole(roleId);
-      setActiveRoleId(roleId);
-      setStep("setup");
-      loadForActiveRole();
-    } catch (e) {
-      setRoleError(e.message);
-    }
-  };
-
-  // No name to type — a role is auto-named off its job description the moment one is saved (see
-  // the backend's store.setJobDescription), so starting a new hiring round is a single click.
-  const addRole = async () => {
-    setRoleError("");
-    try {
-      const { role } = await api.createRole();
-      await refreshRoles();
-      setActiveRoleId(role.id);
-      setStep("setup");
-      loadForActiveRole();
-    } catch (e) {
-      setRoleError(e.message);
-    }
-  };
 
   // Poll while anything is still being scored, so the results view updates live.
   useEffect(() => {
@@ -138,7 +92,7 @@ export default function App() {
           />
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>
-              Little <span style={{ color: "var(--accent)" }}>Nap</span> Recliners
+              Little Nap Recliners
             </div>
             <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Smart Hiring Assistant</div>
           </div>
@@ -153,28 +107,6 @@ export default function App() {
         </div>
       </header>
 
-      {step !== "dashboard" && (
-        <div style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-raised)", padding: "10px 28px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 12.5, color: "var(--muted)", fontWeight: 500 }}>Role</span>
-          <select
-            value={activeRoleId || ""}
-            onChange={(e) => switchRole(e.target.value)}
-            style={{ fontSize: 13, fontWeight: 500, padding: "5px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)" }}
-          >
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>{r.title}</option>
-            ))}
-          </select>
-
-          <button onClick={addRole} style={{ fontSize: 12.5, fontWeight: 500, padding: "5px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", background: "var(--surface)", color: "var(--ink)", cursor: "pointer" }}>
-            New role
-          </button>
-          <span style={{ fontSize: 12, color: "var(--faint)" }}>— named automatically from its job description</span>
-
-          {roleError && <span style={{ fontSize: 12.5, color: "var(--rust)" }}>{roleError}</span>}
-        </div>
-      )}
-
       {rankError && (
         <div style={{ maxWidth: 780, margin: "16px auto 0", padding: "0 24px", fontSize: 13, color: "var(--rust)" }}>
           {rankError}
@@ -182,7 +114,7 @@ export default function App() {
       )}
 
       {step === "setup" && (
-        <Setup jd={jd} setJd={setJd} candidates={candidates} refreshCandidates={refreshCandidates} refreshRoles={refreshRoles} onRank={onRank} />
+        <Setup jd={jd} setJd={setJd} candidates={candidates} refreshCandidates={refreshCandidates} onRank={onRank} />
       )}
       {step === "results" && (
         <Results candidates={candidates} refreshCandidates={refreshCandidates} onCallsTriggered={() => setStep("calls")} />

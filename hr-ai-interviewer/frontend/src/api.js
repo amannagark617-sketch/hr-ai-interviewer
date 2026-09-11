@@ -18,16 +18,9 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  // Roles — each is a self-contained hiring round (its own job description, custom questions,
-  // and candidates). One is "active" at a time; every other endpoint below implicitly operates
-  // on whichever role is currently active.
-  listRoles: () => request("/roles"),
-  // No name needed — the backend auto-names a role off its job description the moment one is set.
-  createRole: () => request("/roles", { method: "POST", body: JSON.stringify({}) }),
-  setActiveRole: (roleId) => request("/roles/active", { method: "PUT", body: JSON.stringify({ roleId }) }),
-  renameRole: (id, title) => request(`/roles/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }),
-  removeRole: (id) => request(`/roles/${id}`, { method: "DELETE" }),
-
+  // No "roles" API here on purpose — hiring rounds are tracked entirely server-side now, with no
+  // UI to pick or name one (see backend/src/data/store.js's setJobDescription). Every endpoint
+  // below implicitly operates on whichever round the job description text puts you in.
   getJobDescription: () => request("/candidates/job-description"),
   setJobDescription: (jobDescription) =>
     request("/candidates/job-description", { method: "PUT", body: JSON.stringify({ jobDescription }) }),

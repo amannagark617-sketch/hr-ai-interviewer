@@ -50,10 +50,19 @@ server.listen(config.port, () => {
   if (!config.plivo.authId || !config.plivo.authToken || !config.plivo.fromNumber) {
     console.warn("Plivo credentials are not fully set — candidate calls won't work yet. See README.");
   }
+  if (!config.appsScript.webAppUrl) {
+    console.warn(
+      "[startup] APPS_SCRIPT_WEB_APP_URL is not set — requested callbacks only survive as long as " +
+        "this container instance stays alive. On Cloud Run's default (scale-to-zero) settings, a " +
+        "restart between now and when a callback is due will lose it. Set APPS_SCRIPT_WEB_APP_URL " +
+        "(see docs/apps-script/Code.gs) so callbacks are parked in the Sheet and recovered after a " +
+        "restart — no need to pay for an always-on instance just for this. See the comment at the " +
+        "top of services/callbackScheduler.js."
+    );
+  }
   console.warn(
-    "[startup] If this is running on Cloud Run: set 'Minimum number of instances' to at least 1 " +
-      "and turn on 'CPU is always allocated' for this service. Without both, requested callbacks " +
-      "(and all other in-memory state) can silently be lost whenever the container idles out " +
-      "between requests — see the comment at the top of services/callbackScheduler.js."
+    "[startup] Note: candidates, roles, and calls still live only in memory (store.js) and are lost " +
+      "on any restart — only requested callbacks are now recovered from Sheets. If Cloud Run scales " +
+      "this to zero mid-hiring-round, HR will need to re-upload the JD/resumes for that round."
   );
 });

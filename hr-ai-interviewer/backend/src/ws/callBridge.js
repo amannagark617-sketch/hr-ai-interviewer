@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { config } from "../config.js";
 import { store } from "../data/store.js";
 import { hangupCall } from "../services/plivoService.js";
+import { savePendingCallback } from "../services/sheetsService.js";
 
 // ---------------------------------------------------------------------------
 // IMPORTANT: this file has NOT been run against live Plivo/Gemini traffic.
@@ -394,6 +395,24 @@ export function attachCallBridge(httpServer) {
               callbackNote: note || "",
               callbackStatus: "pending",
             });
+            // Also park it in the Sheet (see sheetsService.js) so it survives a Cloud Run restart
+            // between now and when it's due — the in-memory update above alone does not. Fire and
+            // forget: this must never block or fail the live call over a logging-sheet hiccup, and
+            // the 60s scheduler tick / request-triggered check already covers the case where this
+            // same instance is still alive when the callback comes due.
+            savePendingCallback({
+              id: candidate.id,
+              candidateName: candidate.name,
+              phone: candidate.phone,
+              roleTitle: role?.title || "",
+              resumeText: candidate.resumeText,
+              jobDescription,
+              customQuestions,
+              scheduledFor: preferredDateTime,
+              note: note || "",
+            }).catch((err) =>
+              console.error(`[callBridge] Failed to persist pending callback for candidate ${candidate.id} to Sheets:`, err.message)
+            );
           } else {
             console.error(
               `[callBridge] request_callback fired for call ${callId} but candidate or preferredDateTime missing — cannot schedule.`

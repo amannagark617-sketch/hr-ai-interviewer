@@ -65,3 +65,75 @@ textarea:focus, input:focus, button:focus-visible, [tabindex]:focus-visible {
 
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .spin { animation: spin 1s linear infinite; }
+
+/* Shared motion/interaction utilities — used to give Setup and Dashboard a bit more life without
+   touching the restrained Apple-esque palette above (still no red, still one accent). */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in {
+  animation: fadeInUp 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Stagger children of a fade-in group by giving each a small extra delay via nth-child, so a row
+   of cards/tiles cascades in instead of popping all at once. */
+.fade-in-group > * { animation: fadeInUp 460ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.fade-in-group > *:nth-child(1) { animation-delay: 0ms; }
+.fade-in-group > *:nth-child(2) { animation-delay: 40ms; }
+.fade-in-group > *:nth-child(3) { animation-delay: 80ms; }
+.fade-in-group > *:nth-child(4) { animation-delay: 120ms; }
+.fade-in-group > *:nth-child(5) { animation-delay: 160ms; }
+.fade-in-group > *:nth-child(n+6) { animation-delay: 200ms; }
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.lift-on-hover {
+  transition: transform var(--motion-normal), box-shadow var(--motion-normal), border-color var(--motion-normal);
+}
+.lift-on-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 32px rgba(29, 29, 31, 0.09);
+  border-color: var(--accent) !important;
+}
+
+/* A soft rotating conic glow behind a card's accent border — used sparingly (stat tiles, the
+   hero) as the one "crazy" touch on an otherwise minimal page. */
+.glow-ring { position: relative; isolation: isolate; }
+.glow-ring::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--glow-angle, 0deg), var(--accent), var(--success), var(--amber), var(--accent));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity var(--motion-normal);
+  z-index: -1;
+  animation: spin-angle 6s linear infinite;
+}
+.glow-ring:hover::before { opacity: 0.55; }
+@property --glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes spin-angle {
+  from { --glow-angle: 0deg; }
+  to { --glow-angle: 360deg; }
+}
+
+.icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}

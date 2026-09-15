@@ -125,6 +125,14 @@ candidatesRouter.post("/upload", upload.array("resumes", 50), async (req, res) =
   for (const file of files) {
     try {
       const text = await extractResumeText(file.buffer, file.originalname);
+      // Even with the OCR fallback in extractResumeText, a genuinely blank/corrupt file still
+      // comes back empty — surface that loudly instead of silently adding a candidate with no
+      // resume on file, which HR would only discover much later when scoring/the interview came
+      // up empty with no clue why.
+      if (!text.trim()) {
+        results.push({ file: file.originalname, ok: false, error: "Couldn't find any text in that file" });
+        continue;
+      }
       const details = extractCandidateDetails(text, file.originalname);
       const candidate = store.addCandidate({
         id: nanoid(),

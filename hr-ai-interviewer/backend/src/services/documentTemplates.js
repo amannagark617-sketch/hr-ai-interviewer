@@ -7,16 +7,16 @@ import Docxtemplater from "docxtemplater";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.join(__dirname, "..", "templates");
 
-// The five HR letter templates HR actually handed over, each a real Word doc with bracketed
+// The six HR letter templates HR actually handed over, each a real Word doc with bracketed
 // placeholders like "[Employee Name]" scattered through the body and any tables (see each
 // .docx's own content — this registry only needs to know the display name and filename; the
 // fields themselves are discovered directly from the document, not hand-typed here, so editing
 // the .docx file in src/templates/ is the only thing needed to add/rename/remove a field).
-// To add a new template (e.g. the Appointment Letter mentioned but not yet provided): drop the
-// .docx into src/templates/ using the same "[Placeholder]" bracket style as the others, then add
-// one entry here.
+// To add another template: drop the .docx into src/templates/ using the same "[Placeholder]"
+// bracket style as the others, then add one entry here.
 export const DOCUMENT_TEMPLATES = [
   { id: "offer-letter", name: "Offer Letter", file: "offer-letter.docx" },
+  { id: "appointment-letter", name: "Appointment Letter", file: "appointment-letter.docx" },
   { id: "experience-letter", name: "Experience Letter", file: "experience-letter.docx" },
   { id: "increment-letter", name: "Increment Letter", file: "increment-letter.docx" },
   { id: "internship-joining-letter", name: "Internship Joining Letter", file: "internship-joining-letter.docx" },

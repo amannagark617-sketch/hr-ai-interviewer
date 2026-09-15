@@ -46,6 +46,14 @@ const CALLBACK_HEADERS = [
   "Created at",
 ];
 
+// HR letter templates (offer/experience/increment/internship letters — see the app's Documents
+// tab) filled in and saved from here on. Both the .docx and the .pdf the backend generated get
+// uploaded to Drive (same account as the sheet, no separate credentials) and linked from a row
+// here, same pattern as saveResumeToDrive below.
+const DOCUMENTS_DRIVE_FOLDER_NAME = "HR AI Interviewer — Generated Documents";
+const DOCUMENTS_TAB = "Generated Documents";
+const DOCUMENTS_HEADERS = ["ID", "Document type", "Name", "Generated at", "Word (.docx)", "PDF", "All field values"];
+
 const HEADERS = [
   "Candidate",
   "Phone",
@@ -90,6 +98,7 @@ function doPost(e) {
     const action = body.action || "logCall";
     if (action === "saveCallback") return saveCallback(body.callback || {});
     if (action === "clearCallback") return clearCallback(body.callbackId);
+    if (action === "saveGeneratedDocument") return saveGeneratedDocument(body.document || {});
     return logCall(body.row || {});
   } catch (err) {
     return jsonResponse({ ok: false, error: err.message });
@@ -227,6 +236,48 @@ function saveResumeToDrive(row) {
   }
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return file.getUrl();
+}
+
+const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// Saves a generated HR letter's .docx and .pdf to Drive and logs a row for it, mirroring
+// saveResumeToDrive above (same folder-per-purpose, same "createFolder on first use" pattern).
+// doc.values is an arbitrary object of every field the form had (label -> what HR typed) —
+// dumped into the sheet as JSON in one column purely as an audit trail; it's never read back by
+// anything, unlike doc.docxBase64/pdfBase64/name/documentType/templateName below, which are.
+function saveGeneratedDocument(doc) {
+  if (!doc.id) return jsonResponse({ ok: false, error: "document.id is required" });
+  if (!doc.docxBase64 || !doc.pdfBase64) {
+    return jsonResponse({ ok: false, error: "document.docxBase64 and document.pdfBase64 are required" });
+  }
+
+  const folders = DriveApp.getFoldersByName(DOCUMENTS_DRIVE_FOLDER_NAME);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(DOCUMENTS_DRIVE_FOLDER_NAME);
+  const safeName = (doc.name || "document").replace(/[^\w\- ]/g, "").trim() || "document";
+  const label = `${safeName} — ${doc.templateName || "Document"}`;
+
+  const docxFile = folder.createFile(Utilities.newBlob(Utilities.base64Decode(doc.docxBase64), DOCX_MIME_TYPE, `${label}.docx`));
+  docxFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const pdfFile = folder.createFile(Utilities.newBlob(Utilities.base64Decode(doc.pdfBase64), MimeType.PDF, `${label}.pdf`));
+  pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(DOCUMENTS_TAB);
+  if (!sheet) sheet = ss.insertSheet(DOCUMENTS_TAB);
+  if (sheet.getLastRow() === 0) sheet.appendRow(DOCUMENTS_HEADERS);
+
+  sheet.appendRow([
+    doc.id,
+    doc.templateName || "",
+    doc.name || "",
+    nowInIst(),
+    docxFile.getUrl(),
+    pdfFile.getUrl(),
+    JSON.stringify(doc.values || {}),
+  ]);
+
+  return jsonResponse({ ok: true, docxUrl: docxFile.getUrl(), pdfUrl: pdfFile.getUrl() });
 }
 
 function joinList(list) {

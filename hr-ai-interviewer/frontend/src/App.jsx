@@ -4,6 +4,7 @@ import Setup from "./pages/Setup.jsx";
 import Results from "./pages/Results.jsx";
 import Calls from "./pages/Calls.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import Documents from "./pages/Documents.jsx";
 
 const iconBtnStyle = {
   display: "flex",
@@ -32,7 +33,7 @@ const tabStyle = (active) => ({
 });
 
 export default function App() {
-  const [step, setStep] = useState("setup"); // "setup" | "results" | "calls" | "dashboard"
+  const [step, setStep] = useState("setup"); // "setup" | "results" | "calls" | "dashboard" | "documents"
   const [jd, setJd] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [rankError, setRankError] = useState("");
@@ -104,6 +105,7 @@ export default function App() {
           </button>
           <button style={tabStyle(step === "calls")} onClick={() => setStep("calls")}>Calls</button>
           <button style={tabStyle(step === "dashboard")} onClick={() => setStep("dashboard")}>Dashboard</button>
+          <button style={tabStyle(step === "documents")} onClick={() => setStep("documents")}>Documents</button>
         </div>
       </header>
 
@@ -121,6 +123,7 @@ export default function App() {
       )}
       {step === "calls" && <Calls />}
       {step === "dashboard" && <Dashboard />}
+      {step === "documents" && <Documents />}
     </div>
   );
 }

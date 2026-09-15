@@ -83,3 +83,16 @@ export async function listPendingCallbacks() {
   }
   return result.callbacks || [];
 }
+
+// Uploads a generated HR letter's .docx and .pdf to Drive and logs a row for it — see the
+// matching saveGeneratedDocument in Code.gs. Returns { docxUrl, pdfUrl }, or null if Sheets
+// logging isn't configured (the generated document itself is still usable — this only means it
+// won't be archived to Drive/Sheets, same "degrade, don't fail" behavior as the functions above).
+export async function saveGeneratedDocument(document) {
+  if (!config.appsScript.webAppUrl) {
+    console.warn("[sheetsService] APPS_SCRIPT_WEB_APP_URL not set — generated document won't be saved to Drive/Sheets.");
+    return null;
+  }
+  const result = await postToAppsScript({ action: "saveGeneratedDocument", document });
+  return { docxUrl: result.docxUrl, pdfUrl: result.pdfUrl };
+}

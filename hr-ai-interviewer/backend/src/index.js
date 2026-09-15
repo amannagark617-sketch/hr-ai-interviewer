@@ -8,8 +8,10 @@ import { rankingRouter } from "./routes/ranking.js";
 import { callsRouter } from "./routes/calls.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { dashboardRouter } from "./routes/dashboard.js";
+import { documentsRouter } from "./routes/documents.js";
 import { attachCallBridge } from "./ws/callBridge.js";
 import { startCallbackScheduler, checkDueCallbacksSoon } from "./services/callbackScheduler.js";
+import { closeBrowser } from "./services/docxToPdf.js";
 
 const app = express();
 app.use(cors());
@@ -34,10 +36,16 @@ app.use("/api/rank", rankingRouter);
 app.use("/api/calls", callsRouter);
 app.use("/api/webhooks", webhooksRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/documents", documentsRouter);
 
 const server = http.createServer(app);
 attachCallBridge(server);
 startCallbackScheduler();
+
+// The Chromium instance docxToPdf.js keeps alive for document generation (see its own comment
+// for why) is a real child process — let it go cleanly on shutdown/redeploy instead of leaking a
+// zombie process in the container.
+process.on("SIGTERM", () => closeBrowser().finally(() => process.exit(0)));
 
 server.listen(config.port, () => {
   console.log(`API listening on http://localhost:${config.port}`);
@@ -64,5 +72,11 @@ server.listen(config.port, () => {
     "[startup] Note: candidates, roles, and calls still live only in memory (store.js) and are lost " +
       "on any restart — only requested callbacks are now recovered from Sheets. If Cloud Run scales " +
       "this to zero mid-hiring-round, HR will need to re-upload the JD/resumes for that round."
+  );
+  console.warn(
+    "[startup] The Documents tab renders PDFs with a headless Chromium (Puppeteer) kept running " +
+      "in the background — give this Cloud Run service at least 1GiB memory (Edit & deploy new " +
+      "revision -> Container -> Memory), or PDF generation can fail/OOM on a smaller instance " +
+      "alongside everything else this app already does."
   );
 });

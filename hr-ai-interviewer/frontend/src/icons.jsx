@@ -108,3 +108,18 @@ export const IconGrid = (props) => (
     <rect x="13.5" y="13.5" width="7" height="7" rx="1.2" />
   </svg>
 );
+
+export const IconDownload = (props) => (
+  <svg {...base} {...props}>
+    <path d="M12 4v11" />
+    <path d="M7.5 11.5 12 16l4.5-4.5" />
+    <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+  </svg>
+);
+
+export const IconPencil = (props) => (
+  <svg {...base} {...props}>
+    <path d="M14.5 4.5 19 9l-10 10H5v-4Z" />
+    <path d="M13 6l5 5" />
+  </svg>
+);

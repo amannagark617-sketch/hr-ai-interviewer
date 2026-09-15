@@ -71,4 +71,18 @@ export const api = {
     }
     return res.text();
   },
+
+  // The Documents tab — HR letter templates (offer/experience/increment/internship letters) with
+  // their fields auto-discovered from the .docx itself (see backend/src/services/
+  // documentTemplates.js), filled in, and generated as a matching .docx + .pdf pair.
+  listDocumentTemplates: () => request("/documents/templates"),
+  listDocuments: () => request("/documents"),
+  generateDocument: (templateId, values) =>
+    request("/documents", { method: "POST", body: JSON.stringify({ templateId, values }) }),
+  updateDocument: (id, values) =>
+    request(`/documents/${id}`, { method: "PATCH", body: JSON.stringify({ values }) }),
+  removeDocument: (id) => request(`/documents/${id}`, { method: "DELETE" }),
+  // Plain URLs, not fetch calls — handed straight to an <a href download> / window.open so the
+  // browser handles the actual file download itself.
+  documentDownloadUrl: (id, ext) => `${BASE}/documents/${id}/download.${ext}`,
 };

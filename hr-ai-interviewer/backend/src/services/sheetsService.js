@@ -96,3 +96,16 @@ export async function saveGeneratedDocument(document) {
   const result = await postToAppsScript({ action: "saveGeneratedDocument", document });
   return { docxUrl: result.docxUrl, pdfUrl: result.pdfUrl };
 }
+
+// Asks the Apps Script (see convertDocxToPdf in Code.gs) to turn a filled .docx into a PDF via
+// Drive's own DOCX importer — the same real, Word-layout-aware renderer behind "open in Google
+// Docs" — instead of docxToPdf.js's own mammoth+Puppeteer pipeline, which only preserves semantic
+// HTML (bold/tables/paragraphs) and drops direct Word formatting entirely (cell shading, tinted
+// callout boxes, the full-page decorative letterhead graphic). Returns null (rather than throwing)
+// when Sheets/Drive isn't configured, so docxToPdf.js can fall back to its own local renderer —
+// same "degrade, don't fail" contract as saveGeneratedDocument above.
+export async function convertDocxToPdfViaDrive(docxBuffer) {
+  if (!config.appsScript.webAppUrl) return null;
+  const result = await postToAppsScript({ action: "convertDocxToPdf", docxBase64: docxBuffer.toString("base64") });
+  return Buffer.from(result.pdfBase64, "base64");
+}

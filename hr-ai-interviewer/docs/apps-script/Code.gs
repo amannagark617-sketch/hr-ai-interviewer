@@ -99,7 +99,19 @@ function doPost(e) {
     if (action === "saveCallback") return saveCallback(body.callback || {});
     if (action === "clearCallback") return clearCallback(body.callbackId);
     if (action === "saveGeneratedDocument") return saveGeneratedDocument(body.document || {});
-    return logCall(body.row || {});
+    if (action === "convertDocxToPdf") return handleConvertDocxToPdf(body);
+    if (action === "logCall") return logCall(body.row || {});
+    // A *recognized-but-unhandled* action used to silently fall through to logCall(body.row || {})
+    // here, which — since body.row is undefined for every action added after logCall — appended a
+    // blank candidate row to the main sheet instead of doing nothing. That happens for real anytime
+    // the backend ships a new action (like convertDocxToPdf above) before this script has been
+    // redeployed with the matching handler. Fail loudly instead: the backend's callers already
+    // treat any ok:false response as a normal, non-fatal error, and this message says exactly what
+    // to do about it.
+    return jsonResponse({
+      ok: false,
+      error: `Unknown action "${action}" — redeploy the latest Code.gs (Deploy -> Manage deployments -> Edit -> New version).`,
+    });
   } catch (err) {
     return jsonResponse({ ok: false, error: err.message });
   }
@@ -278,6 +290,79 @@ function saveGeneratedDocument(doc) {
   ]);
 
   return jsonResponse({ ok: true, docxUrl: docxFile.getUrl(), pdfUrl: pdfFile.getUrl() });
+}
+
+function handleConvertDocxToPdf(body) {
+  if (!body.docxBase64) return jsonResponse({ ok: false, error: "docxBase64 is required" });
+  try {
+    return jsonResponse({ ok: true, pdfBase64: convertDocxToPdf(body.docxBase64) });
+  } catch (err) {
+    return jsonResponse({ ok: false, error: err.message });
+  }
+}
+
+// Converts a filled-in HR letter .docx to PDF using Drive's own DOCX importer — the same
+// Word-compatible rendering engine behind "open in Google Docs" — instead of the Node backend's
+// own mammoth+Puppeteer pipeline. mammoth deliberately converts to plain semantic HTML and
+// discards direct formatting it doesn't recognize as meaningful (cell background shading, the
+// tinted callout box, letter-spaced headings, the full-page decorative letterhead graphic), which
+// is why letters generated that way came out visually flat compared to the original template.
+// Drive's importer reproduces all of that because it's a real Word-layout-aware renderer, not a
+// simplifying one.
+//
+// The mechanism: upload the .docx bytes but *ask Drive to store them as* a Google Doc
+// (mimeType: MimeType.GOOGLE_DOCS) — that's what triggers Drive's own conversion on upload, the
+// same thing happens when you drag a .docx into Drive and open it. Then export that temporary
+// Google Doc back out as a PDF and delete it — only the PDF bytes are kept; the original .docx
+// this app hands out for editing is untouched by any of this.
+//
+// This goes through raw Drive v3 REST calls (UrlFetchApp + ScriptApp.getOAuthToken()) rather than
+// the Advanced Drive Service, so it works with zero extra setup: the script already holds full
+// Drive scope from the DriveApp calls elsewhere in this file (saveResumeToDrive,
+// saveGeneratedDocument), and that's all a bearer token from getOAuthToken() needs to carry.
+function convertDocxToPdf(base64Docx) {
+  const boundary = "hr-ai-interviewer-boundary";
+  const metadata = { name: "HR AI Interviewer — temp PDF conversion", mimeType: MimeType.GOOGLE_DOCS };
+  const multipartBody =
+    "--" + boundary + "\r\n" +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    JSON.stringify(metadata) + "\r\n" +
+    "--" + boundary + "\r\n" +
+    "Content-Type: " + DOCX_MIME_TYPE + "\r\n" +
+    "Content-Transfer-Encoding: base64\r\n\r\n" +
+    base64Docx + "\r\n" +
+    "--" + boundary + "--";
+
+  const uploadResponse = UrlFetchApp.fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+    method: "post",
+    contentType: "multipart/related; boundary=" + boundary,
+    payload: multipartBody,
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+  const uploaded = JSON.parse(uploadResponse.getContentText());
+  if (!uploaded.id) {
+    throw new Error("Drive conversion upload failed: " + uploadResponse.getContentText().slice(0, 300));
+  }
+
+  try {
+    const exportResponse = UrlFetchApp.fetch(
+      `https://www.googleapis.com/drive/v3/files/${uploaded.id}/export?mimeType=application/pdf`,
+      { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }
+    );
+    if (exportResponse.getResponseCode() !== 200) {
+      throw new Error("Drive PDF export failed: " + exportResponse.getContentText().slice(0, 300));
+    }
+    return Utilities.base64Encode(exportResponse.getBlob().getBytes());
+  } finally {
+    // Best-effort cleanup — a failed trash call shouldn't fail the whole conversion when the PDF
+    // itself already came back fine.
+    try {
+      DriveApp.getFileById(uploaded.id).setTrashed(true);
+    } catch (cleanupErr) {
+      // ignore
+    }
+  }
 }
 
 function joinList(list) {

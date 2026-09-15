@@ -1,22 +1,33 @@
 import mammoth from "mammoth";
 import puppeteer from "puppeteer";
 import { extractBackgroundImages } from "./docxBackgroundImages.js";
+import { convertDocxToPdfViaDrive } from "./sheetsService.js";
 
 // Converts a filled-in .docx (see documentTemplates.js) to a PDF, so HR gets both formats without
-// needing Word/LibreOffice installed anywhere. There's no Word-rendering engine available in a
-// plain Node process, so this goes through mammoth (already a dependency — see resumeParser.js)
-// to turn the .docx into HTML first, then prints that HTML to PDF with a real browser (Chromium,
-// via Puppeteer). This keeps every table and inline image from the original template intact —
-// mammoth carries embedded images straight through as data URIs — but it is NOT a pixel-identical
-// re-render of the .docx: exact fonts don't survive the HTML round-trip, and any image Word
-// treated as inline-with-a-paragraph (rather than the page-background letterhead handled
-// separately below) lands wherever mammoth's reflowed HTML puts it, which can differ slightly
-// from its exact position in the original template.
+// needing Word installed anywhere.
 //
-// The letterhead+footer graphic is the one exception, and gets special handling: see
-// docxBackgroundImages.js for why mammoth alone can't place it correctly (it's pasted "behind
-// text" once per page in the source .docx, not a normal Header/Footer) and how this reproduces
-// that as a real repeating full-page background instead.
+// Preferred path: hand the .docx to Drive's own importer (via convertDocxToPdfViaDrive, see
+// Code.gs's convertDocxToPdf) — the same real, Word-layout-aware renderer behind "open in Google
+// Docs," which reproduces direct formatting (cell shading, tinted callout boxes, letter-spaced
+// headings, the full-page decorative letterhead) that the fallback below cannot. This needs Sheets
+// logging configured (APPS_SCRIPT_WEB_APP_URL) since it's the same Apps Script deployment that
+// already handles Drive access — see convertDocxToPdfViaDrive for what happens when it isn't.
+//
+// Fallback path (docxToPdfLocal below): only used when Drive conversion is unavailable or fails.
+// Goes through mammoth (already a dependency — see resumeParser.js) to turn the .docx into HTML,
+// then prints that HTML to PDF with headless Chromium (Puppeteer). This keeps every table and
+// inline image from the original template intact — mammoth carries embedded images straight
+// through as data URIs — but it is NOT a pixel-identical re-render of the .docx: mammoth only
+// preserves semantic HTML (bold/tables/paragraphs), so direct Word formatting like cell shading,
+// background colors, and letter-spacing is lost, and any image Word treated as
+// inline-with-a-paragraph (rather than the page-background letterhead handled separately below)
+// lands wherever mammoth's reflowed HTML puts it, which can differ slightly from its exact
+// position in the original template.
+//
+// The letterhead+footer graphic is the one exception in the fallback path, and gets special
+// handling: see docxBackgroundImages.js for why mammoth alone can't place it correctly (it's
+// pasted "behind text" once per page in the source .docx, not a normal Header/Footer) and how this
+// reproduces that as a real repeating full-page background instead.
 
 // Launching Chromium takes real time (roughly half a second to a couple of seconds) and memory
 // (order of 100-200MB) — paying that cost on every single PDF would make document generation feel
@@ -152,8 +163,19 @@ function buildHeaderFooterTemplates(backgroundImages) {
 }
 
 // Returns { html, pdf } — html is kept around only for debugging/inspection, callers normally
-// just want pdf (a Buffer).
+// just want pdf (a Buffer). html is null when the Drive path served the PDF, since there's no
+// intermediate HTML in that path.
 export async function docxToPdf(docxBuffer) {
+  try {
+    const drivePdf = await convertDocxToPdfViaDrive(docxBuffer);
+    if (drivePdf) return { html: null, pdf: drivePdf };
+  } catch (err) {
+    console.error("[docxToPdf] Drive-based conversion failed, falling back to the local renderer:", err.message);
+  }
+  return docxToPdfLocal(docxBuffer);
+}
+
+async function docxToPdfLocal(docxBuffer) {
   const backgroundImages = extractBackgroundImages(docxBuffer);
   const { value: rawBodyHtml } = await mammoth.convertToHtml({ buffer: docxBuffer }, { includeDefaultStyleMap: true });
   const bodyHtml = stripInlineBackgroundImages(rawBodyHtml, backgroundImages);

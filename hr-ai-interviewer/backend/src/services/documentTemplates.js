@@ -48,11 +48,14 @@ function openTemplate(templateId) {
   return { meta, doc };
 }
 
-// Most fields (names, dates, single numbers) are naturally short — HR isn't going to type a
-// paragraph into "Employee Name". A handful of fields are genuinely open-ended free text, though,
-// and without a cap a long entry there can push the whole letter's page count past whatever the
-// template's letterhead artwork was designed for. Each limit here comes from that field's actual
-// home in its template (checked directly against the .docx's own XML), not a flat guess:
+// A first version of this only capped the handful of fields that looked genuinely open-ended
+// (prose-like labels). That missed the real lesson: ANY field can end up with an unreasonably long
+// value — the field that actually broke a real letter's layout ("Work Location," of all things) was
+// never something anyone would guess needs a limit. Rather than keep discovering these one at a
+// time, every field gets a cap now — a generous DEFAULT_MAX_LENGTH for the ones with no reason to
+// expect more than a short value, and a specific, larger override (below) only for the handful that
+// genuinely need real room, each sized from that field's actual home in its template (checked
+// directly against the .docx's own XML), not a flat guess:
 //   - experience-letter's four "Responsibility" fields are each ONE bullet line in a ~171mm-wide
 //     single-column table cell at 10.5pt — 160 characters is roughly 2 lines, room for a real
 //     sentence without the bullet list threatening to run past a page.
@@ -62,6 +65,8 @@ function openTemplate(templateId) {
 //     clause rather than a paragraph.
 //   - internship-joining-letter's "Address" is a postal address — 180 characters covers any real
 //     address with room to spare.
+const DEFAULT_MAX_LENGTH = 80;
+
 const FIELD_CHAR_LIMITS = {
   "experience-letter": {
     "Responsibility 1 – factual, role-based": 160,
@@ -101,7 +106,7 @@ export function getTemplateFields(templateId) {
     const key = m[1].trim();
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    fields.push({ key, label: displayLabel(key), maxLength: FIELD_CHAR_LIMITS[meta.id]?.[key] });
+    fields.push({ key, label: displayLabel(key), maxLength: FIELD_CHAR_LIMITS[meta.id]?.[key] ?? DEFAULT_MAX_LENGTH });
   }
   return { id: meta.id, name: meta.name, fields };
 }

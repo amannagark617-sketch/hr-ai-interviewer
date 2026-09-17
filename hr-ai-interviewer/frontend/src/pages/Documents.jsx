@@ -158,6 +158,112 @@ function AutoTextarea({ value, style, onKeyDown, ...rest }) {
   );
 }
 
+// The salary/compensation tables (Increment Letter's Existing/New/Annual breakdown, Appointment
+// Letter's Salary Annexure) show up in the form as 13+ fields in a flat one-per-line list — exactly
+// the "one by one... it is confusion" complaint. Each template names these fields with its own
+// prefix convention ("Existing Basic"/"New Basic"/"Annual Basic", or plain "Basic"/"Annual Basic"),
+// but the shape is the same underneath: several fields that are really one row of one real salary
+// table, split apart only because docxtemplater fields are flat. This regroups them back into rows
+// and renders those rows as an actual <table> instead — same data, same maxLength/date/title-case
+// handling per cell, just laid out the way the printed table already looks.
+const ROLE_PREFIX_PATTERN = /^(Existing|New|Annual)\s+(.+)$/;
+const ROLE_LABELS = { existing: "Existing", new: "New", value: "Amount", annual: "Annual" };
+const ROLE_ORDER = ["existing", "new", "value", "annual"];
+
+// A run of grouped rows only renders as a table once it's long enough to actually look like one —
+// short of that, a coincidental pair (Increment Letter's own "Existing Annual CTC"/"New Annual CTC"
+// summary line, unrelated to its per-row breakdown table just below it) would otherwise get pulled
+// out into a stray one-row "table" instead of just reading as the two ordinary fields it is.
+const MIN_TABLE_ROWS = 4;
+
+// Splits a template's flat field list into a sequence of either standalone fields or grouped
+// table rows. Two fields are the same row if one is bare "<Component>" and the very next one is
+// exactly "Annual <Component>" (Appointment Letter's shape), or if consecutive fields share an
+// Existing/New/Annual prefix over the same component name (Increment Letter's shape) — in both
+// templates the pieces of one row are always adjacent in field order, so no lookahead beyond "the
+// next field" is needed.
+function buildFormEntries(fields) {
+  const entries = [];
+  let i = 0;
+  while (i < fields.length) {
+    const field = fields[i];
+    const prefixMatch = ROLE_PREFIX_PATTERN.exec(field.key);
+    if (prefixMatch) {
+      const component = prefixMatch[2];
+      const roles = { [prefixMatch[1].toLowerCase()]: field };
+      let j = i + 1;
+      while (j < fields.length) {
+        const nextMatch = ROLE_PREFIX_PATTERN.exec(fields[j].key);
+        if (nextMatch && nextMatch[2] === component && !roles[nextMatch[1].toLowerCase()]) {
+          roles[nextMatch[1].toLowerCase()] = fields[j];
+          j++;
+        } else break;
+      }
+      entries.push({ type: "row", component, roles });
+      i = j;
+    } else if (fields[i + 1]?.key === `Annual ${field.key}`) {
+      entries.push({ type: "row", component: field.key, roles: { value: field, annual: fields[i + 1] } });
+      i += 2;
+    } else {
+      entries.push({ type: "field", field });
+      i += 1;
+    }
+  }
+  return entries;
+}
+
+// Collapses long-enough consecutive runs of "row" entries into one "table" entry each; a run
+// shorter than MIN_TABLE_ROWS is flattened back into its individual fields, exactly as if it had
+// never been grouped (see the Existing/New Annual CTC example above).
+function groupEntriesIntoTables(entries) {
+  const out = [];
+  let i = 0;
+  while (i < entries.length) {
+    if (entries[i].type !== "row") {
+      out.push(entries[i]);
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < entries.length && entries[j].type === "row") j++;
+    const run = entries.slice(i, j);
+    if (run.length >= MIN_TABLE_ROWS) {
+      const columns = ROLE_ORDER.filter((role) => run.some((row) => row.roles[role]));
+      out.push({ type: "table", rows: run, columns });
+    } else {
+      for (const row of run) {
+        for (const role of ROLE_ORDER) {
+          if (row.roles[role]) out.push({ type: "field", field: row.roles[role] });
+        }
+      }
+    }
+    i = j;
+  }
+  return out;
+}
+
+const salaryTableStyle = { width: "100%", borderCollapse: "collapse", fontSize: 13 };
+const salaryThStyle = {
+  textAlign: "left",
+  fontSize: 12,
+  fontWeight: 600,
+  color: "var(--muted)",
+  padding: "6px 8px",
+  borderBottom: "1px solid var(--border)",
+};
+const salaryTdStyle = { padding: "4px 6px", borderBottom: "1px solid var(--border-soft)", verticalAlign: "middle" };
+const salaryLabelTdStyle = { ...salaryTdStyle, fontSize: 13, color: "var(--ink)", whiteSpace: "nowrap" };
+const salaryInputStyle = { ...inputStyle, padding: "6px 8px", fontSize: 13, minWidth: 90 };
+
+// Shared between a standalone field and one table cell — same date/title-case/length-cap handling
+// either way, just a different wrapping style.
+function FieldInput({ field, value, onChange, onBlur, style }) {
+  if (fieldKind(field) === "date") {
+    return <input type="date" value={value || ""} onChange={onChange} style={style} />;
+  }
+  return <AutoTextarea value={value || ""} onChange={onChange} onBlur={onBlur} maxLength={field.maxLength} style={style} />;
+}
+
 export default function Documents() {
   const [templates, setTemplates] = useState(null);
   const [documents, setDocuments] = useState([]);
@@ -419,27 +525,57 @@ export default function Documents() {
               <label style={{ ...labelStyle, marginBottom: 0 }}>{selectedTemplate.name}</label>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {selectedTemplate.fields.map((field) => {
-                const kind = fieldKind(field);
+              {groupEntriesIntoTables(buildFormEntries(selectedTemplate.fields)).map((entry, idx) => {
+                if (entry.type === "table") {
+                  return (
+                    <div key={`table-${idx}`} style={{ overflowX: "auto" }}>
+                      <table style={salaryTableStyle}>
+                        <thead>
+                          <tr>
+                            <th style={salaryThStyle}>Component</th>
+                            {entry.columns.map((role) => (
+                              <th key={role} style={salaryThStyle}>{ROLE_LABELS[role]}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {entry.rows.map((row) => (
+                            <tr key={row.component}>
+                              <td style={salaryLabelTdStyle}>{row.component}</td>
+                              {entry.columns.map((role) => {
+                                const field = row.roles[role];
+                                return (
+                                  <td key={role} style={salaryTdStyle}>
+                                    {field && (
+                                      <FieldInput
+                                        field={field}
+                                        value={values[field.key]}
+                                        onChange={(e) => setField(field.key, e.target.value)}
+                                        onBlur={() => handleTitleCaseBlur(field)}
+                                        style={salaryInputStyle}
+                                      />
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+                const { field } = entry;
                 return (
                   <div key={field.key}>
                     <label style={labelStyle}>{field.label}</label>
-                    {kind === "date" ? (
-                      <input
-                        type="date"
-                        value={values[field.key] || ""}
-                        onChange={(e) => setField(field.key, e.target.value)}
-                        style={inputStyle}
-                      />
-                    ) : (
-                      <AutoTextarea
-                        value={values[field.key] || ""}
-                        onChange={(e) => setField(field.key, e.target.value)}
-                        onBlur={() => handleTitleCaseBlur(field)}
-                        maxLength={field.maxLength}
-                        style={inputStyle}
-                      />
-                    )}
+                    <FieldInput
+                      field={field}
+                      value={values[field.key]}
+                      onChange={(e) => setField(field.key, e.target.value)}
+                      onBlur={() => handleTitleCaseBlur(field)}
+                      style={inputStyle}
+                    />
                     {/* Every field has a maxLength now (see documentTemplates.js), but showing a
                         counter under every single one — most of which no real value will ever get
                         near — would just be clutter. Only surface it once a value is actually

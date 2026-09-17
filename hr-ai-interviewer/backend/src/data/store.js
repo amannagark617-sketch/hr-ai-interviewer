@@ -11,6 +11,11 @@ const candidates = new Map(); // id -> candidate (each carries roleId — which 
 const calls = new Map(); // callId -> call job
 const documents = new Map(); // id -> generated HR letter { id, templateId, templateName, values, createdAt, updatedAt, driveDocxUrl, driveFileUrl }
 
+// The Home page's banner image, kept as a data URI (small enough — see the 8MB cap in
+// routes/branding.js — that base64-in-memory is simpler than standing up real file storage for
+// one image). Resets on restart same as everything else here; re-uploading takes ten seconds.
+let bannerImage = null;
+
 // Sentinel for "this role has never had a title set" — see setJobDescription below, which is what
 // actually names a role (auto-derived from the job description itself, never typed by hand).
 export const DEFAULT_ROLE_TITLE = "Untitled role";
@@ -186,5 +191,12 @@ export const store = {
   },
   removeDocument(id) {
     documents.delete(id);
+  },
+
+  getBannerImage() {
+    return bannerImage;
+  },
+  setBannerImage(dataUri) {
+    bannerImage = dataUri;
   },
 };

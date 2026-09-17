@@ -9,6 +9,7 @@ import { callsRouter } from "./routes/calls.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { documentsRouter } from "./routes/documents.js";
+import { brandingRouter } from "./routes/branding.js";
 import { attachCallBridge } from "./ws/callBridge.js";
 import { startCallbackScheduler, checkDueCallbacksSoon } from "./services/callbackScheduler.js";
 import { closeBrowser } from "./services/docxToPdf.js";
@@ -37,6 +38,7 @@ app.use("/api/calls", callsRouter);
 app.use("/api/webhooks", webhooksRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/documents", documentsRouter);
+app.use("/api/branding", brandingRouter);
 
 const server = http.createServer(app);
 attachCallBridge(server);

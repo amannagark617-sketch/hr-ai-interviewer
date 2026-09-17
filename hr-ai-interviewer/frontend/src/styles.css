@@ -1,33 +1,33 @@
 :root {
-  /* Little Nap Recliners — clean white, generous radius, pill controls */
-  --bg: #FFFFFF;
+  /* Little Nap Recliners — warm cream & terracotta, soft rounded shapes, pill controls */
+  --bg: #FBF6EE;
   --surface: #FFFFFF;
-  --surface-raised: #F5F5F7;
-  --ink: #1D1D1F;
-  --muted: #6E6E73;
-  --faint: #8E8E93;
-  --border: #D9D9DE;
-  --border-soft: #ECECEE;
-  /* Simple, restrained accent — no red. A single muted blue for every interactive element
-     (buttons, active tab, links, focus ring, checkboxes), the same role Apple's own UI blue
-     plays: one accent, used sparingly, everything else neutral black/white/gray. */
-  --accent: #0071E3;
-  --accent-soft: #E8F1FC;
-  --accent-hover: #0058B0;
+  --surface-raised: #F4E9D8;
+  --ink: #2B2420;
+  --muted: #7A6C5A;
+  --faint: #A79A85;
+  --border: #E6D9C4;
+  --border-soft: #F0E6D5;
+  /* Warm terracotta accent instead of a cool blue — every interactive element (buttons, active
+     tab, links, focus ring, checkboxes) uses this one accent, everything else neutral. */
+  --accent: #C1622D;
+  --accent-soft: #F7E6D7;
+  --accent-hover: #9C4C21;
   /* Separate "positive signal" green so Strong fit / Advance never reads as the same color as
      the accent above. */
-  --success: #2B7A4B;
-  --success-soft: #E5F2EA;
-  --amber: #8A6417;
-  --amber-soft: #F5EEDD;
-  --rust: #9A4331;
-  --rust-soft: #F4E4DE;
-  --call: #EAA24A;
+  --success: #4F7A4A;
+  --success-soft: #E9F0E1;
+  --amber: #9C7A1F;
+  --amber-soft: #F6EEDA;
+  --rust: #A3402C;
+  --rust-soft: #F5E2D9;
+  --call: #E2A24F;
+  --call-soft: #FBEEDC;
 
-  /* Radius scale */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
+  /* Radius scale — a touch softer/rounder than before */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
   --radius-pill: 980px;
 
   /* Motion */
@@ -43,11 +43,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  font-family: "Nunito Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-.serif { font-family: "Source Serif 4", serif; }
+.serif { font-family: "Fraunces", serif; }
 
 button {
   font-family: inherit;

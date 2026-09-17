@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "./api.js";
+import Home from "./pages/Home.jsx";
 import Setup from "./pages/Setup.jsx";
 import Results from "./pages/Results.jsx";
 import Calls from "./pages/Calls.jsx";
@@ -33,7 +34,8 @@ const tabStyle = (active) => ({
 });
 
 export default function App() {
-  const [step, setStep] = useState("setup"); // "setup" | "results" | "calls" | "dashboard" | "documents"
+  const [step, setStep] = useState("home"); // "home" | "setup" | "results" | "calls" | "dashboard" | "documents"
+  const [logoOk, setLogoOk] = useState(true);
   const [jd, setJd] = useState("");
   const [candidates, setCandidates] = useState([]);
   const [rankError, setRankError] = useState("");
@@ -79,18 +81,40 @@ export default function App() {
     <div style={{ minHeight: "100vh" }}>
       <header style={{ borderBottom: "1px solid var(--border)", padding: "18px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          {step !== "setup" && (
-            <button onClick={() => setStep("setup")} aria-label="Back to setup" style={iconBtnStyle}>
+          {step !== "home" && (
+            <button onClick={() => setStep("home")} aria-label="Back to home" style={iconBtnStyle}>
               ←
             </button>
           )}
-          <img
-            src="/logo.png"
-            alt="Little Nap Recliners"
-            width={34}
-            height={34}
-            style={{ borderRadius: "var(--radius-sm)", objectFit: "contain", flexShrink: 0 }}
-          />
+          {logoOk ? (
+            <img
+              src="/logo.png"
+              alt="Little Nap Recliners"
+              width={34}
+              height={34}
+              onError={() => setLogoOk(false)}
+              style={{ borderRadius: "var(--radius-sm)", objectFit: "contain", flexShrink: 0 }}
+            />
+          ) : (
+            <div
+              aria-hidden="true"
+              style={{
+                width: 34,
+                height: 34,
+                flexShrink: 0,
+                borderRadius: "var(--radius-sm)",
+                background: "var(--accent)",
+                color: "#FFFFFF",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              LN
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: "-0.01em" }}>
               Little Nap Recliners
@@ -99,6 +123,7 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--surface-raised)", borderRadius: "var(--radius-pill)", padding: 4 }}>
+          <button style={tabStyle(step === "home")} onClick={() => setStep("home")}>Home</button>
           <button style={tabStyle(step === "setup")} onClick={() => setStep("setup")}>Setup</button>
           <button style={tabStyle(step === "results")} onClick={() => setStep("results")} disabled={candidates.length === 0}>
             Rank &amp; select
@@ -115,6 +140,7 @@ export default function App() {
         </div>
       )}
 
+      {step === "home" && <Home candidates={candidates} onNavigate={setStep} />}
       {step === "setup" && (
         <Setup jd={jd} setJd={setJd} candidates={candidates} refreshCandidates={refreshCandidates} onRank={onRank} />
       )}

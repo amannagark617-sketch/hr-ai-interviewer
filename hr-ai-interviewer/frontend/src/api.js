@@ -85,4 +85,14 @@ export const api = {
   // Plain URLs, not fetch calls — handed straight to an <a href download> / window.open so the
   // browser handles the actual file download itself.
   documentDownloadUrl: (id, ext) => `${BASE}/documents/${id}/download.${ext}`,
+
+  // The Home page's banner image — a single shared image, not per-user, stored server-side (see
+  // backend/src/routes/branding.js) so everyone who opens the app sees the same one.
+  getBranding: () => request("/branding"),
+  uploadBanner: (file) => {
+    const form = new FormData();
+    form.append("banner", file);
+    return request("/branding/banner", { method: "POST", body: form });
+  },
+  removeBanner: () => request("/branding/banner", { method: "DELETE" }),
 };

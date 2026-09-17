@@ -114,6 +114,28 @@ export function getTemplateFields(templateId) {
   return { id: meta.id, name: meta.name, fields };
 }
 
+// Word (and every layout engine) only ever breaks a line at whitespace/hyphens — an unbroken run
+// of characters has nowhere natural to wrap, no matter how short the character cap is. A pasted
+// string of digits or a run-together URL will render as one long blob that either overflows the
+// page or gets forced onto its own line, however small maxLength is. The fix isn't a shorter cap
+// (that just makes a smaller blob) — it's giving the line breaker somewhere to break: insert an
+// invisible zero-width space (U+200B) every BREAK_RUN_LENGTH characters inside any run that has
+// gone that long with no whitespace. U+200B renders as nothing and is a legal break point almost
+// universally (Word, Docs, any PDF renderer that shells out to real text layout), so normal text
+// (which already has spaces well within that length) is completely untouched.
+const BREAK_RUN_LENGTH = 20;
+
+function insertBreakOpportunities(value) {
+  return value.replace(/\S+/g, (run) => {
+    if (run.length <= BREAK_RUN_LENGTH) return run;
+    const chunks = [];
+    for (let i = 0; i < run.length; i += BREAK_RUN_LENGTH) {
+      chunks.push(run.slice(i, i + BREAK_RUN_LENGTH));
+    }
+    return chunks.join("​");
+  });
+}
+
 // Fills a template with the given values (an object keyed by each field's exact bracket text —
 // see getTemplateFields above) and returns the rendered .docx as a Buffer, formatting fully
 // intact (fonts, tables, the letterhead/signature images embedded in the original file).
@@ -130,7 +152,8 @@ export function renderTemplateDocx(templateId, values) {
   const data = {};
   for (const { key, maxLength } of fields) {
     const value = values?.[key] ?? "";
-    data[key] = maxLength ? value.slice(0, maxLength) : value;
+    const clamped = maxLength ? value.slice(0, maxLength) : value;
+    data[key] = insertBreakOpportunities(clamped);
   }
   doc.render(data);
   return doc.getZip().generate({ type: "nodebuffer" });

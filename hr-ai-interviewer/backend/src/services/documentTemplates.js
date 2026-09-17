@@ -61,8 +61,11 @@ function openTemplate(templateId) {
 //     sentence without the bullet list threatening to run past a page.
 //   - internship-experience-letter's "area / project" sits mid-sentence in a flowing paragraph
 //     ("...projects relating to [area / project], and gained...") — it reads as a short phrase or
-//     a short list of project names, not a multi-sentence block, so 220 characters keeps it a
-//     clause rather than a paragraph.
+//     a short list of project names, not a multi-sentence block, so 110 characters keeps it a
+//     clause rather than a paragraph. This one has no noWrap to fall back on (it's a flowing
+//     paragraph, not a table cell — Word wraps prose normally there), so the cap is the only real
+//     lever on how bad a worst-case value can look; kept tighter than the table-cell fields for
+//     exactly that reason.
 //   - internship-joining-letter's "Address" is a postal address — 180 characters covers any real
 //     address with room to spare.
 const DEFAULT_MAX_LENGTH = 80;
@@ -75,7 +78,7 @@ const FIELD_CHAR_LIMITS = {
     "Responsibility 4 – factual, role-based": 160,
   },
   "internship-experience-letter": {
-    "area / project": 220,
+    "area / project": 110,
   },
   "internship-joining-letter": {
     Address: 180,

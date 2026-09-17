@@ -425,8 +425,17 @@ export default function Documents() {
                         value={values[field.key] || ""}
                         onChange={(e) => setField(field.key, e.target.value)}
                         onBlur={() => handleTitleCaseBlur(field)}
+                        maxLength={field.maxLength}
                         style={inputStyle}
                       />
+                    )}
+                    {/* Only fields the template registry actually caps (see FIELD_CHAR_LIMITS in
+                        documentTemplates.js) show a counter — every other field stays uncluttered,
+                        since a limit that doesn't exist has nothing useful to count down from. */}
+                    {field.maxLength && (
+                      <div style={{ fontSize: 11, color: "var(--faint)", textAlign: "right", marginTop: 4 }}>
+                        {(values[field.key] || "").length}/{field.maxLength}
+                      </div>
                     )}
                   </div>
                 );

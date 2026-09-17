@@ -1,13 +1,15 @@
 :root {
-  /* Little Nap Recliners — warm cream & terracotta, soft rounded shapes, pill controls */
-  --bg: #FBF6EE;
+  /* Little Nap Recliners — warm cream & terracotta, soft rounded shapes, pill controls.
+     --bg is deliberately a clearly-saturated warm sand, not a pale near-white/gray tone
+     (avoid anything near #F5F4F0 and its shades — it reads as washed-out gray, not warm). */
+  --bg: #F6E7D2;
   --surface: #FFFFFF;
-  --surface-raised: #F4E9D8;
+  --surface-raised: #EEDBBD;
   --ink: #2B2420;
   --muted: #7A6C5A;
   --faint: #A79A85;
-  --border: #E6D9C4;
-  --border-soft: #F0E6D5;
+  --border: #DEC79F;
+  --border-soft: #E9D7B5;
   /* Warm terracotta accent instead of a cool blue — every interactive element (buttons, active
      tab, links, focus ring, checkboxes) uses this one accent, everything else neutral. */
   --accent: #C1622D;

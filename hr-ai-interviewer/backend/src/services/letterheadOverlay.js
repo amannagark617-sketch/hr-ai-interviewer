@@ -1,4 +1,5 @@
-import { PDFDocument, PDFName, PDFString, PDFDict, PDFRawStream, PDFNumber } from "pdf-lib";
+import zlib from "node:zlib";
+import { PDFDocument, PDFName, PDFString, PDFDict, PDFArray, PDFRawStream, PDFNumber } from "pdf-lib";
 
 // The AmbitionBox rating badge baked into the letterhead image (bottom-right corner, above the
 // footer bar) should link to the company's actual AmbitionBox page, but a raster image has no
@@ -45,6 +46,15 @@ const LARGE_IMAGE_THRESHOLD_PX = 400;
 // no longer render at all — only this function's own background, drawn once per page in a single
 // consistent way, ends up visible.
 //
+// That still wasn't the whole story: Drive's PDF export also draws its own opaque white rectangle
+// covering the entire page as the very first thing in each page's content stream — a common "paint
+// a safe background" convention, but drawn as a plain vector fill, not an image, so
+// neutralizeLargeImages (which only looks at Image XObjects) never touched it. It was invisible as
+// long as some leftover letterhead image was drawn on top of it, but the moment that leftover
+// image search started actually working, this white fill was the only thing left between this
+// module's own clean background and the surface — painting over it completely on every page.
+// neutralizeFullPageWhiteFill (below) finds and no-ops that exact fill operator.
+//
 // pdf-lib has no native/system dependencies (pure JS), so this works under buildpack-only hosting
 // (Google AI Studio's deploy flow, Cloud Run source deploys) same as everything else in this app.
 export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages) {
@@ -55,6 +65,7 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages) {
 
   for (const page of srcDoc.getPages()) {
     neutralizeLargeImages(srcDoc, page, LARGE_IMAGE_THRESHOLD_PX);
+    neutralizeFullPageWhiteFill(srcDoc, page);
   }
 
   const { dataUri } = backgroundImages[0];
@@ -103,6 +114,60 @@ function neutralizeLargeImages(pdfDoc, page, thresholdPx) {
       xobjDict.set(key, getTransparentPlaceholder(pdfDoc));
     }
   }
+}
+
+// Drive's PDF export consistently opens each page's content stream with a preamble that sets the
+// fill/stroke color to pure white (`1 1 1 rg`/`1 1 1 RG`) and immediately fills a rectangle sized
+// to the whole page (`W H re f`) — a defensive "paint the page background" convention, always the
+// very first drawing operation, always in the page's first content stream. Finds that specific
+// fill (searched for only in the first few hundred bytes, since it's always right at the start —
+// this deliberately avoids matching some *later*, legitimate white fill, like a table cell's own
+// white row background) and turns its `f` (fill) operator into `n` (end the path without painting
+// it) — a one-character, stack-neutral edit: `n` is a real, valid path-painting operator, so this
+// can't unbalance the q/Q graphics-state stack the way deleting bytes could.
+function neutralizeFullPageWhiteFill(pdfDoc, page) {
+  const contentsRef = page.node.get(PDFName.of("Contents"));
+  if (!contentsRef) return;
+  const contents = pdfDoc.context.lookup(contentsRef);
+  // A page can have one content stream or several concatenated in an array — Drive's own
+  // page-background preamble is always the very first thing drawn, so only the first stream (in
+  // either shape) ever needs checking.
+  const firstStreamRef = contents instanceof PDFArray ? contents.get(0) : contentsRef;
+  const streamObj = pdfDoc.context.lookup(firstStreamRef);
+  if (!(streamObj instanceof PDFRawStream)) return;
+
+  const isFlate = streamObj.dict.get(PDFName.of("Filter"))?.toString() === "/FlateDecode";
+  const raw = Buffer.from(streamObj.getContents());
+  const decoded = isFlate ? zlib.inflateSync(raw) : raw;
+  const text = decoded.toString("latin1");
+
+  const neutralized = neutralizeWhiteFillText(text);
+  if (neutralized === null) return;
+
+  // Stored uncompressed (Filter dropped) rather than re-deflating — simpler and safer than trying
+  // to reproduce Drive's exact compression settings, and one page's content stream is small enough
+  // that leaving it uncompressed costs nothing that matters for a one-off generated document.
+  const newBytes = Buffer.from(neutralized, "latin1");
+  const newStream = PDFRawStream.of(pdfDoc.context.obj({ Length: newBytes.length }), newBytes);
+  pdfDoc.context.assign(firstStreamRef, newStream);
+}
+
+// Pure text transform, kept separate from the PDF-object plumbing above so it can be reasoned
+// about (and tested) as a plain string-in, string-out function. Returns the edited text, or null if
+// the expected "white fill near the very start" pattern wasn't found — a page that doesn't match
+// (no such preamble, or it's shaped differently than expected) is left completely untouched rather
+// than risking a wrong guess.
+function neutralizeWhiteFillText(streamText) {
+  const searchWindow = streamText.slice(0, 400);
+  const whiteRgIdx = searchWindow.search(/1\s+1\s+1\s+rg\b/);
+  if (whiteRgIdx === -1) return null;
+  const reMatch = /(?:-?\d+(?:\.\d+)?\s+){3}-?\d+(?:\.\d+)?\s+re\b/.exec(searchWindow.slice(whiteRgIdx));
+  if (!reMatch) return null;
+  const reEndIdx = whiteRgIdx + reMatch.index + reMatch[0].length;
+  const fMatch = /^\s*f\b/.exec(searchWindow.slice(reEndIdx));
+  if (!fMatch) return null;
+  const fStartIdx = reEndIdx + fMatch[0].indexOf("f");
+  return streamText.slice(0, fStartIdx) + "n" + streamText.slice(fStartIdx + 1);
 }
 
 function getTransparentPlaceholder(pdfDoc) {

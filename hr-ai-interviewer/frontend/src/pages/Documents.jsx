@@ -128,7 +128,13 @@ function toSubmitValues(fields, values) {
 // Starts exactly one line tall — same visual height as a plain <input> — and grows to fit
 // whatever's typed or pasted, instead of clipping long content or leaving short content in an
 // oversized fixed box the way a guessed textarea size does either way.
-function AutoTextarea({ value, style, ...rest }) {
+//
+// Enter is blocked outright: every field across every template is meant to render as one
+// continuous line/phrase (even a "Responsibility" bullet or "area / project" is a single bullet
+// or clause in the source .docx, not a multi-line block) — a manual line break typed into the form
+// would insert a literal hard break into that spot instead of just the ordinary text-wrapping the
+// auto-grow above already handles.
+function AutoTextarea({ value, style, onKeyDown, ...rest }) {
   const ref = useRef(null);
   useEffect(() => {
     const el = ref.current;
@@ -136,11 +142,16 @@ function AutoTextarea({ value, style, ...rest }) {
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") e.preventDefault();
+    onKeyDown?.(e);
+  };
   return (
     <textarea
       ref={ref}
       value={value}
       rows={1}
+      onKeyDown={handleKeyDown}
       style={{ ...style, resize: "none", overflow: "hidden" }}
       {...rest}
     />
@@ -429,10 +440,11 @@ export default function Documents() {
                         style={inputStyle}
                       />
                     )}
-                    {/* Only fields the template registry actually caps (see FIELD_CHAR_LIMITS in
-                        documentTemplates.js) show a counter — every other field stays uncluttered,
-                        since a limit that doesn't exist has nothing useful to count down from. */}
-                    {field.maxLength && (
+                    {/* Every field has a maxLength now (see documentTemplates.js), but showing a
+                        counter under every single one — most of which no real value will ever get
+                        near — would just be clutter. Only surface it once a value is actually
+                        closing in on its limit, when the countdown is genuinely useful to see. */}
+                    {field.maxLength && (values[field.key]?.length || 0) >= field.maxLength * 0.6 && (
                       <div style={{ fontSize: 11, color: "var(--faint)", textAlign: "right", marginTop: 4 }}>
                         {(values[field.key] || "").length}/{field.maxLength}
                       </div>

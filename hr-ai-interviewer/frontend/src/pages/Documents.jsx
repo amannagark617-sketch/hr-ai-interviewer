@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
-import { IconCheckCircle, IconDocument, IconDownload, IconPencil, IconUsers } from "../icons.jsx";
+import { IconCheckCircle, IconDocument, IconDownload, IconPencil, IconUpload, IconUsers } from "../icons.jsx";
 
 const labelStyle = { display: "block", fontSize: 13, fontWeight: 500, color: "var(--muted)", marginBottom: 8 };
 const inputStyle = {
@@ -96,6 +96,9 @@ const MONEY_FIELD_PATTERN = /ctc|salary|stipend|amount/i;
 const TIME_RANGE_FIELD_PATTERN = /\bhours?\b|\btime\b/i;
 
 function fieldKind(field, forceMoney) {
+  // Backend-driven, not guessed from the label — see documentTemplates.js's IMAGE_FIELDS/isImage.
+  // A signature is the one field this app currently treats this way.
+  if (field.isImage) return "signature";
   if (forceMoney) return "money";
   if (DATE_FIELD_PATTERN.test(field.label)) return "date";
   if (TIME_RANGE_FIELD_PATTERN.test(field.label)) return "timerange";
@@ -246,18 +249,26 @@ const ROLE_ORDER = ["existing", "new", "value", "annual"];
 // out into a stray one-row "table" instead of just reading as the two ordinary fields it is.
 const MIN_TABLE_ROWS = 4;
 
+// Offer Letter names the same kind of row a third way: "Basic - Monthly" / "Basic - Annual" (the
+// component name first, "Monthly"/"Annual" as a suffix rather than Appointment Letter's bare
+// "Basic"/"Annual Basic" prefix shape) — which matched neither pattern above, so its salary table
+// was rendering as 14 flat "Basic"/"Basic"/"HRA"/"HRA"/... fields with no visible grouping at all.
+const MONTHLY_ANNUAL_SUFFIX_PATTERN = /^(.+) - (Monthly|Annual)$/;
+
 // Splits a template's flat field list into a sequence of either standalone fields or grouped
 // table rows. Two fields are the same row if one is bare "<Component>" and the very next one is
-// exactly "Annual <Component>" (Appointment Letter's shape), or if consecutive fields share an
-// Existing/New/Annual prefix over the same component name (Increment Letter's shape) — in both
-// templates the pieces of one row are always adjacent in field order, so no lookahead beyond "the
-// next field" is needed.
+// exactly "Annual <Component>" (Appointment Letter's shape), if consecutive fields share an
+// Existing/New/Annual prefix over the same component name (Increment Letter's shape), or if
+// consecutive fields share a "<Component> - Monthly"/"<Component> - Annual" suffix (Offer
+// Letter's shape) — in all three templates the pieces of one row are always adjacent in field
+// order, so no lookahead beyond "the next field" is needed.
 function buildFormEntries(fields) {
   const entries = [];
   let i = 0;
   while (i < fields.length) {
     const field = fields[i];
     const prefixMatch = ROLE_PREFIX_PATTERN.exec(field.key);
+    const suffixMatch = MONTHLY_ANNUAL_SUFFIX_PATTERN.exec(field.key);
     if (prefixMatch) {
       const component = prefixMatch[2];
       const roles = { [prefixMatch[1].toLowerCase()]: field };
@@ -271,6 +282,9 @@ function buildFormEntries(fields) {
       }
       entries.push({ type: "row", component, roles });
       i = j;
+    } else if (suffixMatch && suffixMatch[2] === "Monthly" && fields[i + 1]?.key === `${suffixMatch[1]} - Annual`) {
+      entries.push({ type: "row", component: suffixMatch[1], roles: { value: field, annual: fields[i + 1] } });
+      i += 2;
     } else if (fields[i + 1]?.key === `Annual ${field.key}`) {
       entries.push({ type: "row", component: field.key, roles: { value: field, annual: fields[i + 1] } });
       i += 2;
@@ -327,6 +341,80 @@ const salaryInputStyle = { ...inputStyle, padding: "6px 8px", fontSize: 13, minW
 
 const timeInputStyle = { flex: 1, minWidth: 0 };
 
+// A signature is optional — the letter can also go out for someone to sign by hand — so this
+// reads as an upload zone when empty and a small preview + "Change"/"Remove" pair once a photo's
+// attached, rather than forcing a signature before the rest of the form is usable. The value
+// itself is just a data: URI (same convention as the Home page's banner upload) held in `values`
+// like any other field, so no separate upload endpoint or extra request is needed — it goes out
+// with the rest of the form on submit.
+// A signature only ever needs to be legible at roughly SIGNATURE_IMAGE_SIZE-in-the-document scale
+// (see documentTemplates.js), but a phone camera photo straight off someone's gallery can easily
+// be several MB — and that value lives in the same `values` object as everything else, which the
+// documents list re-fetches on every poll (see routes/documents.js's own note on why buffers never
+// ride along in that response; the same cost applies to a multi-MB data URI). Downscaling through
+// a canvas before it ever reaches state keeps every signature small regardless of the original
+// photo's resolution.
+const SIGNATURE_MAX_WIDTH = 360;
+
+function downscaleImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, SIGNATURE_MAX_WIDTH / img.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/png"));
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function SignatureField({ value, onChange, style }) {
+  const fileInputRef = useRef(null);
+
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    onChange(await downscaleImage(file));
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={onFileChange} style={{ display: "none" }} />
+      {value && (
+        <img
+          src={value}
+          alt="Signature preview"
+          style={{ height: 36, maxWidth: 110, objectFit: "contain", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)" }}
+        />
+      )}
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        style={{ ...style, width: "auto", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--muted)" }}
+      >
+        <IconUpload width={15} height={15} />
+        {value ? "Change signature photo" : "Upload signature photo"}
+      </button>
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          style={{ background: "transparent", border: "none", color: "var(--faint)", cursor: "pointer", fontSize: 13 }}
+        >
+          Remove
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Shared between a standalone field and one table cell — same date/money/time-range/title-case/
 // length-cap handling either way, just a different wrapping style. forceMoney is set by the
 // salary-table cell caller, since a breakdown table's cells ("Basic", "HRA", ...) are always
@@ -337,6 +425,10 @@ function FieldInput({ field, values, setField, onFieldBlur, forceMoney, style })
 
   if (kind === "date") {
     return <input type="date" value={value || ""} onChange={(e) => setField(field.key, e.target.value)} style={style} />;
+  }
+
+  if (kind === "signature") {
+    return <SignatureField value={value} onChange={(v) => setField(field.key, v)} style={style} />;
   }
 
   if (kind === "timerange") {
@@ -710,7 +802,7 @@ export default function Documents() {
                         counter under every single one — most of which no real value will ever get
                         near — would just be clutter. Only surface it once a value is actually
                         closing in on its limit, when the countdown is genuinely useful to see. */}
-                    {field.maxLength && (values[field.key]?.length || 0) >= field.maxLength * 0.6 && (
+                    {!field.isImage && field.maxLength && (values[field.key]?.length || 0) >= field.maxLength * 0.6 && (
                       <div style={{ fontSize: 11, color: "var(--faint)", textAlign: "right", marginTop: 4 }}>
                         {(values[field.key] || "").length}/{field.maxLength}
                       </div>

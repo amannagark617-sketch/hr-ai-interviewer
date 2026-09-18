@@ -3,9 +3,61 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import PizZip from "pizzip";
 import Docxtemplater from "docxtemplater";
+import ImageModule from "docxtemplater-image-module-free";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.join(__dirname, "..", "templates");
+
+// Which fields are an uploaded image (a signature) rather than text — keyed the same way as
+// FIELD_CHAR_LIMITS/COMPUTED_FIELDS below. Drives three things: getTemplateFields marks these
+// with isImage so the frontend renders a file-upload control instead of a text box; renderTemplateDocx
+// decodes the value as an image instead of clamping/wrapping it as text; and the template's own
+// bracket text for these is "[%Signature]" rather than "[Signature]" — the leading "%" is
+// docxtemplater's own (delimiter-agnostic) tag-type marker for "this is a module tag, not plain
+// text", which is why getTemplateFields below also has to skip any key starting with "%": without
+// that it would additionally show up as a second, bogus "%Signature" text field.
+const IMAGE_FIELDS = {
+  "internship-joining-letter": new Set(["Signature"]),
+};
+
+// A fixed, reasonable signature box (px, matching getSize's units below) — this is a fill-in-the-
+// blank line being replaced by an image, not a photo upload, so a fixed size (rather than trying
+// to preserve whatever aspect ratio someone's phone photo happens to have) is what keeps every
+// generated letter's signature area looking consistent.
+const SIGNATURE_IMAGE_SIZE = [180, 70];
+
+// Used whenever a template has an image field but no image was actually provided — a signature
+// line is optional at generation time (the letter often goes out for the intern to sign later),
+// and the image module needs a real, valid image buffer to embed either way. A fully transparent
+// 1x1 PNG stretched to SIGNATURE_IMAGE_SIZE renders as nothing, leaving that spot blank exactly
+// like the original hand-fill blank line did.
+const TRANSPARENT_PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=",
+  "base64"
+);
+
+function dataUriToImageBuffer(dataUri) {
+  const m = /^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/.exec((dataUri || "").trim());
+  return m ? Buffer.from(m[1], "base64") : null;
+}
+
+// A fresh instance per call, not a shared singleton — docxtemplater refuses to attach the same
+// module instance to more than one Docxtemplater, and getTemplateFields/renderTemplateDocx both
+// call openTemplate() independently (often more than once per document generation).
+//
+// getImage does the data-URI -> Buffer decoding itself, rather than handing it an already-decoded
+// Buffer — the module's own tag-value handling special-cases anything typeof "object" as a
+// pre-resolved {rId, sizePixel} reference (for reusing an image it already embedded), and a
+// Buffer is typeof "object" too, so passing one straight through gets silently misinterpreted as
+// that other shape instead of raw image bytes. Keeping the value a plain string until getImage
+// converts it avoids that branch entirely.
+function createImageModule() {
+  return new ImageModule({
+    centered: false,
+    getImage: (tagValue) => dataUriToImageBuffer(tagValue) || TRANSPARENT_PNG_1X1,
+    getSize: () => SIGNATURE_IMAGE_SIZE,
+  });
+}
 
 // The six HR letter templates HR actually handed over, each a real Word doc with bracketed
 // placeholders like "[Employee Name]" scattered through the body and any tables (see each
@@ -44,6 +96,9 @@ function openTemplate(templateId) {
     // default {curly} syntax, since that's the convention whoever wrote these letters already
     // used — matching it means the original .docx files don't need to be touched at all.
     delimiters: { start: "[", end: "]" },
+    // Harmless for the five templates that never use a "[%...]" image tag — the module only
+    // does anything when the parser actually finds one.
+    modules: [createImageModule()],
   });
   return { meta, doc };
 }
@@ -57,8 +112,10 @@ function openTemplate(templateId) {
 // genuinely need real room, each sized from that field's actual home in its template (checked
 // directly against the .docx's own XML), not a flat guess:
 //   - experience-letter's four "Responsibility" fields are each ONE bullet line in a ~171mm-wide
-//     single-column table cell at 10.5pt — 160 characters is roughly 2 lines, room for a real
-//     sentence without the bullet list threatening to run past a page.
+//     single-column table cell at 10.5pt — 90 characters keeps each bullet to roughly one line,
+//     tightened down from an earlier 160 (about 2 lines) once real filled-in letters showed that
+//     much room let a bullet run long enough to look like a formatting problem rather than a
+//     clean, scannable list.
 //   - internship-experience-letter's "area / project" sits mid-sentence in a flowing paragraph
 //     ("...projects relating to [area / project], and gained...") — it reads as a short phrase or
 //     a short list of project names, not a multi-sentence block, so 110 characters keeps it a
@@ -67,21 +124,42 @@ function openTemplate(templateId) {
 //     lever on how bad a worst-case value can look; kept tighter than the table-cell fields for
 //     exactly that reason.
 //   - internship-joining-letter's "Address" is a postal address — 180 characters covers any real
-//     address with room to spare.
+//     address with room to spare. Its "Name & Designation" (the reporting manager's combined
+//     field) and "Authorised Signatory Name" are both just "Person Name" or "Person Name, Title" —
+//     tightened below since a bare 80-character default reads as "no real limit" for a value that
+//     short.
 const DEFAULT_MAX_LENGTH = 80;
 
 const FIELD_CHAR_LIMITS = {
   "experience-letter": {
-    "Responsibility 1 – factual, role-based": 160,
-    "Responsibility 2 – factual, role-based": 160,
-    "Responsibility 3 – factual, role-based": 160,
-    "Responsibility 4 – factual, role-based": 160,
+    "Responsibility 1 – factual, role-based": 90,
+    "Responsibility 2 – factual, role-based": 90,
+    "Responsibility 3 – factual, role-based": 90,
+    "Responsibility 4 – factual, role-based": 90,
   },
   "internship-experience-letter": {
     "area / project": 110,
   },
   "internship-joining-letter": {
     Address: 180,
+    "Name & Designation": 70,
+    "Authorised Signatory Name": 60,
+  },
+};
+
+const MONTH_ABBRS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// Some bracket placeholders shouldn't be HR-fillable form fields at all — the Internship Joining
+// Letter's acknowledgement date is always "today, whenever this letter is generated," never a
+// value someone should be typing in themselves. Keyed by templateId -> bracket text -> a function
+// producing the fill value; getTemplateFields skips these entirely (so no field ever shows up in
+// the form for them) and renderTemplateDocx fills them in unconditionally, on every render.
+const COMPUTED_FIELDS = {
+  "internship-joining-letter": {
+    "Acknowledgement Date": () => {
+      const d = new Date();
+      return `${String(d.getDate()).padStart(2, "0")}-${MONTH_ABBRS[d.getMonth()]}-${d.getFullYear()}`;
+    },
   },
 };
 
@@ -106,10 +184,19 @@ export function getTemplateFields(templateId) {
   const seen = new Set();
   const fields = [];
   for (const m of fullText.matchAll(/\[([^[\]]{1,120}?)\]/g)) {
-    const key = m[1].trim();
-    if (!key || seen.has(key)) continue;
+    let key = m[1].trim();
+    // "%Signature" (from the image tag "[%Signature]") — strip docxtemplater's own leading "%"
+    // module-tag marker to get back the real field name, "Signature".
+    const isImageTag = key.startsWith("%");
+    if (isImageTag) key = key.slice(1).trim();
+    if (!key || seen.has(key) || COMPUTED_FIELDS[meta.id]?.[key]) continue;
     seen.add(key);
-    fields.push({ key, label: displayLabel(key), maxLength: FIELD_CHAR_LIMITS[meta.id]?.[key] ?? DEFAULT_MAX_LENGTH });
+    fields.push({
+      key,
+      label: displayLabel(key),
+      maxLength: FIELD_CHAR_LIMITS[meta.id]?.[key] ?? DEFAULT_MAX_LENGTH,
+      isImage: isImageTag || IMAGE_FIELDS[meta.id]?.has(key) || false,
+    });
   }
   return { id: meta.id, name: meta.name, fields };
 }
@@ -147,13 +234,24 @@ function insertBreakOpportunities(value) {
 // actually protects the rendered letter's layout if this is ever called some other way (a direct
 // API request, a future integration) that skips the form entirely.
 export function renderTemplateDocx(templateId, values) {
-  const { doc } = openTemplate(templateId);
+  const { meta, doc } = openTemplate(templateId);
   const fields = getTemplateFields(templateId).fields;
   const data = {};
-  for (const { key, maxLength } of fields) {
+  for (const { key, maxLength, isImage } of fields) {
     const value = values?.[key] ?? "";
+    if (isImage) {
+      // Must stay a non-empty string — an empty/falsy tag value makes the image module fall back
+      // to leaving the literal "[%Signature]" tag text in the document instead of rendering
+      // anything. getImage (see createImageModule) treats anything that isn't a real data URI as
+      // "no signature provided" and falls back to the transparent placeholder itself.
+      data[key] = value || "none";
+      continue;
+    }
     const clamped = maxLength ? value.slice(0, maxLength) : value;
     data[key] = insertBreakOpportunities(clamped);
+  }
+  for (const [key, compute] of Object.entries(COMPUTED_FIELDS[meta.id] || {})) {
+    data[key] = compute();
   }
   doc.render(data);
   return doc.getZip().generate({ type: "nodebuffer" });

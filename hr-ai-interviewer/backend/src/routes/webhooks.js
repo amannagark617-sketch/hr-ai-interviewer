@@ -104,6 +104,15 @@ webhooksRouter.post("/hangup", async (req, res) => {
   const latestCandidate = store.getCandidate(call.candidateId) || candidate;
   const callbackRequested = latestCandidate?.callbackStatus === "pending";
 
+  // A transcript with no real "Candidate:" line means the candidate never actually got a chance
+  // to say anything — the agent hung up, the call dropped, or a turn-taking bug ended things
+  // before a real conversation happened. Scoring that transcript (usually just the agent's own
+  // greeting) as a genuine interview reliably produces a confident, meaningless "reject" — the
+  // candidate loses a shot at the role over a failure on our end, not their own performance.
+  const candidateSpoke = (latestCall.transcript || "")
+    .split(/\r?\n/)
+    .some((line) => /^Candidate:\s*\S/.test(line));
+
   let interviewScore = null;
   let recommendation = null;
   let summary = "";
@@ -116,6 +125,15 @@ webhooksRouter.post("/hangup", async (req, res) => {
     // carry the actual outcome of this call instead.
     console.log(
       `[webhooks/hangup] Call ${callId}: candidate asked to be called back at ${latestCandidate.callbackScheduledFor} — skipping scoring.`
+    );
+  } else if (latestCall.transcript?.trim() && !candidateSpoke) {
+    recommendation = "hold";
+    summary =
+      "The call ended before the candidate said anything — likely a dropped connection or a " +
+      "technical issue on our end, not a real interview. Worth another attempt before making a " +
+      "decision.";
+    console.warn(
+      `[webhooks/hangup] Call ${callId} ended with no candidate speech in the transcript — marking "hold" instead of scoring, to avoid rejecting the candidate over our own failure to connect.`
     );
   } else if (latestCall.transcript?.trim()) {
     try {

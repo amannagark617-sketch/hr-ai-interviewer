@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode — Vite handles the actual transpilation/bundling */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* This project is JS-first with TS being added incrementally (see the shadcn
+       integration) — allowJs keeps every existing .jsx page compiling as-is instead of
+       demanding a full-project rewrite just to use one new .tsx component. */
+    "allowJs": true,
+    "checkJs": false,
+    "strict": false,
+
+    /* Matches the "@/..." import alias every shadcn component uses (e.g. "@/lib/utils") —
+       also mirrored in vite.config.js's resolve.alias so it works at build time, not just
+       for the TS/editor side. */
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}

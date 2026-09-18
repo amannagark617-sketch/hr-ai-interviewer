@@ -1,15 +1,18 @@
 :root {
-  /* Little Nap Recliners — warm peach-blush & terracotta, soft rounded shapes, pill controls */
-  --bg: #F8ECE2;
+  /* Little Nap Recliners — neutral white/gray (three warm-toned attempts in a row all read as
+     "yellow/orange" — plain neutral now, no warm undertone in bg/surface/border at all), soft
+     rounded shapes, pill controls. */
+  --bg: #F6F6F7;
   --surface: #FFFFFF;
-  --surface-raised: #F0DCC9;
-  --ink: #2B2420;
-  --muted: #7A6C5A;
-  --faint: #A79A85;
-  --border: #E3CDB5;
-  --border-soft: #EDDDC9;
-  /* Warm terracotta accent instead of a cool blue — every interactive element (buttons, active
-     tab, links, focus ring, checkboxes) uses this one accent, everything else neutral. */
+  --surface-raised: #EFEFF1;
+  --ink: #1F1F22;
+  --muted: #6E6E76;
+  --faint: #9C9CA3;
+  --border: #DCDCE0;
+  --border-soft: #E8E8EB;
+  /* Terracotta accent kept as the one interactive-element color (buttons, active tab, links,
+     focus ring) — untouched by the neutral-background change above, which was specifically about
+     the page/surface tones, not this. */
   --accent: #C1622D;
   --accent-soft: #F7E6D7;
   --accent-hover: #9C4C21;

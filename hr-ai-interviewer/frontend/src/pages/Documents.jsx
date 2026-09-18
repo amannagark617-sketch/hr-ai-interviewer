@@ -81,14 +81,38 @@ const DATE_FIELD_PATTERN = /date|\bdd\s*[\/\- ]?\s*mon(th)?\s*[\/\- ]?\s*yyyy\b/
 // generated letter's own body text.
 const TITLE_CASE_FIELD_PATTERN = /name|designation|department|location|manager|position|role/i;
 
-function fieldKind(field) {
+// A rupee amount ("Annual CTC", the internship stipend's "Amount", every cell of a salary
+// breakdown table) needs a completely different input than free text — see the "money" case in
+// FieldInput below. Standalone fields are matched by label; the fields inside a compensation
+// breakdown table (Basic/HRA/Conveyance/...) are matched separately by forceMoney (see
+// buildFormEntries/groupEntriesIntoTables) since their labels are just the component name, with
+// no word here to match against.
+const MONEY_FIELD_PATTERN = /ctc|salary|stipend|amount/i;
+
+// "Office Hours" (Appointment Letter) / "Time" i.e. Working Hours (Internship Joining Letter) —
+// a free-text field here is exactly how someone ends up with "172397" as their office hours. Two
+// native time pickers instead, joined into "09:00 AM to 06:00 PM" at submit time — see
+// formatTimeRangeForDoc/toSubmitValues.
+const TIME_RANGE_FIELD_PATTERN = /\bhours?\b|\btime\b/i;
+
+function fieldKind(field, forceMoney) {
+  if (forceMoney) return "money";
   if (DATE_FIELD_PATTERN.test(field.label)) return "date";
+  if (TIME_RANGE_FIELD_PATTERN.test(field.label)) return "timerange";
+  if (MONEY_FIELD_PATTERN.test(field.label)) return "money";
   if (TITLE_CASE_FIELD_PATTERN.test(field.label)) return "titlecase";
   return "text";
 }
 
 function titleCase(str) {
-  return str.replace(/\S+/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+  return str.replace(/\S+/g, (word) => {
+    // A word that's already ALL CAPS (2+ letters) is almost always a deliberate acronym — "AI",
+    // "MDO", "HR" — not someone who forgot to release Caps Lock. Collapsing it to "Ai"/"Mdo" was
+    // actively wrong, not just a style choice, so those are left exactly as typed. Anything else
+    // (lowercase, Mixed Case, a single capitalized initial) still gets the normal fix.
+    if (word.length > 1 && word === word.toUpperCase() && word !== word.toLowerCase()) return word;
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
 }
 
 const MONTH_ABBRS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -115,11 +139,57 @@ function parseDocDateToIso(value) {
   return `${m[3]}-${String(monthIndex + 1).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
 }
 
+// Indian digit grouping (lakh/crore style): the last 3 digits stand alone, everything before that
+// groups in pairs — 2189379 -> "21,89,379", not the Western "2,189,379". Takes/returns a plain
+// digit string; punctuation is the caller's job (see the money case in FieldInput and
+// handleMoneyBlur, which strip it back out before re-deriving this on every edit).
+function formatIndianAmount(digits) {
+  if (digits.length <= 3) return digits;
+  const last3 = digits.slice(-3);
+  const rest = digits.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+  return `${rest},${last3}`;
+}
+
+function formatTime12h(hhmm) {
+  const [h, m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = ((h + 11) % 12) + 1;
+  return `${String(h12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+// The two native <input type="time"> pickers (see FieldInput's "timerange" case) live in state as
+// separate 24h "HH:MM" sub-values under "<field.key>__from"/"__to" — only combined into the one
+// real field value ("09:00 AM to 06:00 PM") at submit time, mirroring how a date field stays ISO
+// in state and only becomes "15-Sep-2026" here too (see toSubmitValues below).
+function formatTimeRangeForDoc(fromHHMM, toHHMM) {
+  return `${formatTime12h(fromHHMM)} to ${formatTime12h(toHHMM)}`;
+}
+
+// The reverse, for re-opening a previously generated document — same reasoning as
+// parseDocDateToIso. Returns blank sub-values (not the original string) when it can't parse.
+function parseTimeRangeToSubvalues(value) {
+  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)\s+to\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec((value || "").trim());
+  if (!m) return { from: "", to: "" };
+  const to24 = (h, mm, period) => {
+    let hh = Number(h) % 12;
+    if (period.toUpperCase() === "PM") hh += 12;
+    return `${String(hh).padStart(2, "0")}:${mm}`;
+  };
+  return { from: to24(m[1], m[2], m[3]), to: to24(m[4], m[5], m[6]) };
+}
+
 function toSubmitValues(fields, values) {
   const out = { ...values };
   for (const field of fields) {
-    if (fieldKind(field) === "date" && out[field.key]) {
+    const kind = fieldKind(field);
+    if (kind === "date" && out[field.key]) {
       out[field.key] = formatDateForDoc(out[field.key]);
+    } else if (kind === "timerange") {
+      const from = out[`${field.key}__from`];
+      const to = out[`${field.key}__to`];
+      if (from && to) out[field.key] = formatTimeRangeForDoc(from, to);
+      delete out[`${field.key}__from`];
+      delete out[`${field.key}__to`];
     }
   }
   return out;
@@ -255,13 +325,60 @@ const salaryTdStyle = { padding: "4px 6px", borderBottom: "1px solid var(--borde
 const salaryLabelTdStyle = { ...salaryTdStyle, fontSize: 13, color: "var(--ink)", whiteSpace: "nowrap" };
 const salaryInputStyle = { ...inputStyle, padding: "6px 8px", fontSize: 13, minWidth: 90 };
 
-// Shared between a standalone field and one table cell — same date/title-case/length-cap handling
-// either way, just a different wrapping style.
-function FieldInput({ field, value, onChange, onBlur, style }) {
-  if (fieldKind(field) === "date") {
-    return <input type="date" value={value || ""} onChange={onChange} style={style} />;
+const timeInputStyle = { flex: 1, minWidth: 0 };
+
+// Shared between a standalone field and one table cell — same date/money/time-range/title-case/
+// length-cap handling either way, just a different wrapping style. forceMoney is set by the
+// salary-table cell caller, since a breakdown table's cells ("Basic", "HRA", ...) are always
+// monetary but don't have a label MONEY_FIELD_PATTERN can match on its own.
+function FieldInput({ field, values, setField, onFieldBlur, forceMoney, style }) {
+  const kind = fieldKind(field, forceMoney);
+  const value = values[field.key];
+
+  if (kind === "date") {
+    return <input type="date" value={value || ""} onChange={(e) => setField(field.key, e.target.value)} style={style} />;
   }
-  return <AutoTextarea value={value || ""} onChange={onChange} onBlur={onBlur} maxLength={field.maxLength} style={style} />;
+
+  if (kind === "timerange") {
+    const fromKey = `${field.key}__from`;
+    const toKey = `${field.key}__to`;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input type="time" value={values[fromKey] || ""} onChange={(e) => setField(fromKey, e.target.value)} style={{ ...style, ...timeInputStyle }} />
+        <span style={{ fontSize: 12.5, color: "var(--muted)", flexShrink: 0 }}>to</span>
+        <input type="time" value={values[toKey] || ""} onChange={(e) => setField(toKey, e.target.value)} style={{ ...style, ...timeInputStyle }} />
+      </div>
+    );
+  }
+
+  if (kind === "money") {
+    // Digits only in state while editing (no commas) — reformatting on every keystroke risks
+    // fighting the cursor mid-edit, same reason title-case only fires on blur. onFocus also
+    // strips back to digits, so re-editing an already-formatted value ("21,89,379") doesn't start
+    // by inserting into the middle of punctuation.
+    return (
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value || ""}
+        onFocus={() => setField(field.key, (value || "").replace(/\D/g, ""))}
+        onChange={(e) => setField(field.key, e.target.value.replace(/\D/g, ""))}
+        onBlur={() => onFieldBlur(field, forceMoney)}
+        maxLength={field.maxLength}
+        style={style}
+      />
+    );
+  }
+
+  return (
+    <AutoTextarea
+      value={value || ""}
+      onChange={(e) => setField(field.key, e.target.value)}
+      onBlur={() => onFieldBlur(field, forceMoney)}
+      maxLength={field.maxLength}
+      style={style}
+    />
+  );
 }
 
 export default function Documents() {
@@ -298,8 +415,13 @@ export default function Documents() {
     const template = templates?.find((t) => t.id === doc.templateId);
     const initialValues = { ...(doc.values || {}) };
     for (const field of template?.fields || []) {
-      if (fieldKind(field) === "date" && initialValues[field.key]) {
+      const kind = fieldKind(field);
+      if (kind === "date" && initialValues[field.key]) {
         initialValues[field.key] = parseDocDateToIso(initialValues[field.key]);
+      } else if (kind === "timerange" && initialValues[field.key]) {
+        const { from, to } = parseTimeRangeToSubvalues(initialValues[field.key]);
+        initialValues[`${field.key}__from`] = from;
+        initialValues[`${field.key}__to`] = to;
       }
     }
     setValues(initialValues);
@@ -318,9 +440,16 @@ export default function Documents() {
 
   const setField = (key, v) => setValues((prev) => ({ ...prev, [key]: v }));
 
-  const handleTitleCaseBlur = (field) => {
-    if (fieldKind(field) !== "titlecase") return;
-    setValues((prev) => (prev[field.key] ? { ...prev, [field.key]: titleCase(prev[field.key]) } : prev));
+  const onFieldBlur = (field, forceMoney) => {
+    const kind = fieldKind(field, forceMoney);
+    if (kind === "titlecase") {
+      setValues((prev) => (prev[field.key] ? { ...prev, [field.key]: titleCase(prev[field.key]) } : prev));
+    } else if (kind === "money") {
+      setValues((prev) => {
+        const digits = (prev[field.key] || "").replace(/\D/g, "");
+        return digits ? { ...prev, [field.key]: formatIndianAmount(digits) } : prev;
+      });
+    }
   };
 
   const generate = async () => {
@@ -549,9 +678,10 @@ export default function Documents() {
                                     {field && (
                                       <FieldInput
                                         field={field}
-                                        value={values[field.key]}
-                                        onChange={(e) => setField(field.key, e.target.value)}
-                                        onBlur={() => handleTitleCaseBlur(field)}
+                                        values={values}
+                                        setField={setField}
+                                        onFieldBlur={onFieldBlur}
+                                        forceMoney
                                         style={salaryInputStyle}
                                       />
                                     )}
@@ -571,9 +701,9 @@ export default function Documents() {
                     <label style={labelStyle}>{field.label}</label>
                     <FieldInput
                       field={field}
-                      value={values[field.key]}
-                      onChange={(e) => setField(field.key, e.target.value)}
-                      onBlur={() => handleTitleCaseBlur(field)}
+                      values={values}
+                      setField={setField}
+                      onFieldBlur={onFieldBlur}
                       style={inputStyle}
                     />
                     {/* Every field has a maxLength now (see documentTemplates.js), but showing a

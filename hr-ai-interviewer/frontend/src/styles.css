@@ -1,13 +1,13 @@
 :root {
-  /* Little Nap Recliners — warm cream & terracotta, soft rounded shapes, pill controls */
-  --bg: #FBF6EE;
+  /* Little Nap Recliners — warm peach-blush & terracotta, soft rounded shapes, pill controls */
+  --bg: #F8ECE2;
   --surface: #FFFFFF;
-  --surface-raised: #F4E9D8;
+  --surface-raised: #F0DCC9;
   --ink: #2B2420;
   --muted: #7A6C5A;
   --faint: #A79A85;
-  --border: #E6D9C4;
-  --border-soft: #F0E6D5;
+  --border: #E3CDB5;
+  --border-soft: #EDDDC9;
   /* Warm terracotta accent instead of a cool blue — every interactive element (buttons, active
      tab, links, focus ring, checkboxes) uses this one accent, everything else neutral. */
   --accent: #C1622D;
@@ -43,11 +43,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font-family: "Nunito Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: "Work Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-.serif { font-family: "Fraunces", serif; }
+.serif { font-family: "Lora", serif; }
 
 button {
   font-family: inherit;

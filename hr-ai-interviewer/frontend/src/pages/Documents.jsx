@@ -207,7 +207,7 @@ function toSubmitValues(fields, values) {
 // or clause in the source .docx, not a multi-line block) — a manual line break typed into the form
 // would insert a literal hard break into that spot instead of just the ordinary text-wrapping the
 // auto-grow above already handles.
-function AutoTextarea({ value, style, onKeyDown, ...rest }) {
+function AutoTextarea({ value, style, onKeyDown, onChange, ...rest }) {
   const ref = useRef(null);
   useEffect(() => {
     const el = ref.current;
@@ -219,12 +219,23 @@ function AutoTextarea({ value, style, onKeyDown, ...rest }) {
     if (e.key === "Enter") e.preventDefault();
     onKeyDown?.(e);
   };
+  // Blocking Enter only stops someone TYPING a line break — pasted text (e.g. copied out of
+  // Excel or a Word doc) carries its own literal newlines straight through onChange without ever
+  // firing a keydown, so a paste could still sneak a hard break into a field every template
+  // treats as one continuous line. Stripped here too, not just at the keyboard.
+  const handleChange = (e) => {
+    if (/[\r\n]/.test(e.target.value)) {
+      e.target.value = e.target.value.replace(/[\r\n]+/g, " ");
+    }
+    onChange?.(e);
+  };
   return (
     <textarea
       ref={ref}
       value={value}
       rows={1}
       onKeyDown={handleKeyDown}
+      onChange={handleChange}
       style={{ ...style, resize: "none", overflow: "hidden" }}
       {...rest}
     />

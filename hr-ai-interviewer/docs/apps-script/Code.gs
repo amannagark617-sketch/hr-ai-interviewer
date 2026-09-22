@@ -23,6 +23,37 @@ const SHEET_TAB = "Round 1"; // change if you want a different tab name
 const SECRET = "REPLACE_WITH_A_LONG_RANDOM_STRING";
 const DRIVE_FOLDER_NAME = "HR AI Interviewer — Resumes";
 
+// Used to durably park a candidate's "call me back later" request. The backend's own in-memory
+// store forgets everything on restart (see backend/src/data/store.js) — deliberately, since this
+// app runs on Cloud Run and paying to keep an instance always warm just to hold a few pending
+// callbacks in RAM isn't worth it. This sheet tab is the free alternative: the backend writes a
+// pending callback here the moment the candidate asks for one (see saveCallback below), and polls
+// it back (listCallbacks) to notice when one is due — surviving however many restarts happen in
+// between, at no extra cost. A row here carries everything needed to actually run that interview
+// again from scratch (resume text, job description, custom questions) since, after a restart, the
+// backend has no other record of what role or resume this candidate was even calling about.
+const CALLBACKS_TAB = "Pending Callbacks";
+const CALLBACK_HEADERS = [
+  "ID",
+  "Candidate",
+  "Phone",
+  "Role",
+  "Resume",
+  "Job description",
+  "Custom questions",
+  "Scheduled for",
+  "Note",
+  "Created at",
+];
+
+// HR letter templates (offer/experience/increment/internship letters — see the app's Documents
+// tab) filled in and saved from here on. Both the .docx and the .pdf the backend generated get
+// uploaded to Drive (same account as the sheet, no separate credentials) and linked from a row
+// here, same pattern as saveResumeToDrive below.
+const DOCUMENTS_DRIVE_FOLDER_NAME = "HR AI Interviewer — Generated Documents";
+const DOCUMENTS_TAB = "Generated Documents";
+const DOCUMENTS_HEADERS = ["ID", "Document type", "Name", "Generated at", "Word (.docx)", "PDF", "All field values"];
+
 const HEADERS = [
   "Candidate",
   "Phone",
@@ -62,44 +93,128 @@ function doPost(e) {
       return jsonResponse({ ok: false, error: "Unauthorized" });
     }
 
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = ss.getSheetByName(SHEET_TAB);
-    if (!sheet) {
-      sheet = ss.insertSheet(SHEET_TAB);
-    }
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(HEADERS);
-    }
-
-    const row = body.row || {};
-    const resumeUrl = saveResumeToDrive(row);
-
-    sheet.appendRow([
-      row.candidateName || "",
-      row.phone || "",
-      row.resumeScore ?? "",
-      row.resumeVerdict || "",
-      joinList(row.resumePros),
-      joinList(row.resumeCons),
-      resumeUrl,
-      row.callStatus || "",
-      formatDuration(row.callDurationSeconds),
-      row.interviewScore ?? "",
-      row.recommendation || "",
-      joinList(row.interviewStrengths),
-      joinList(row.interviewConcerns),
-      row.recordingUrl || "",
-      row.interviewSummary || "",
-      new Date().toISOString(),
-      row.role || "",
-      row.callbackScheduledFor || "",
-      row.callbackNote || "",
-    ]);
-
-    return jsonResponse({ ok: true, resumeUrl });
+    // "action" is new — older backend deploys never send it and only ever meant "log a call
+    // result row", so that stays the default rather than requiring every caller to pass it.
+    const action = body.action || "logCall";
+    if (action === "saveCallback") return saveCallback(body.callback || {});
+    if (action === "clearCallback") return clearCallback(body.callbackId);
+    if (action === "saveGeneratedDocument") return saveGeneratedDocument(body.document || {});
+    if (action === "convertDocxToPdf") return handleConvertDocxToPdf(body);
+    if (action === "logCall") return logCall(body.row || {});
+    // A *recognized-but-unhandled* action used to silently fall through to logCall(body.row || {})
+    // here, which — since body.row is undefined for every action added after logCall — appended a
+    // blank candidate row to the main sheet instead of doing nothing. That happens for real anytime
+    // the backend ships a new action (like convertDocxToPdf above) before this script has been
+    // redeployed with the matching handler. Fail loudly instead: the backend's callers already
+    // treat any ok:false response as a normal, non-fatal error, and this message says exactly what
+    // to do about it.
+    return jsonResponse({
+      ok: false,
+      error: `Unknown action "${action}" — redeploy the latest Code.gs (Deploy -> Manage deployments -> Edit -> New version).`,
+    });
   } catch (err) {
     return jsonResponse({ ok: false, error: err.message });
   }
+}
+
+function logCall(row) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_TAB);
+  }
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(HEADERS);
+  }
+
+  const resumeUrl = saveResumeToDrive(row);
+
+  sheet.appendRow([
+    row.candidateName || "",
+    row.phone || "",
+    row.resumeScore ?? "",
+    row.resumeVerdict || "",
+    joinList(row.resumePros),
+    joinList(row.resumeCons),
+    resumeUrl,
+    row.callStatus || "",
+    formatDuration(row.callDurationSeconds),
+    row.interviewScore ?? "",
+    row.recommendation || "",
+    joinList(row.interviewStrengths),
+    joinList(row.interviewConcerns),
+    row.recordingUrl || "",
+    row.interviewSummary || "",
+    nowInIst(),
+    row.role || "",
+    row.callbackScheduledFor || "",
+    row.callbackNote || "",
+  ]);
+
+  return jsonResponse({ ok: true, resumeUrl });
+}
+
+function getCallbacksSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CALLBACKS_TAB);
+  if (!sheet) {
+    sheet = ss.insertSheet(CALLBACKS_TAB);
+  }
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(CALLBACK_HEADERS);
+  }
+  return sheet;
+}
+
+// Upsert-by-ID rather than a plain append — the interview agent can call request_callback more
+// than once for the same candidate (they re-schedule mid-call, or a later call re-requests one),
+// and each of those reuses the same call/candidate ID from the backend rather than minting a new
+// row every time.
+function saveCallback(cb) {
+  if (!cb.id) return jsonResponse({ ok: false, error: "callback.id is required" });
+
+  const sheet = getCallbacksSheet();
+  const existingRow = findCallbackRow(sheet, cb.id);
+  const values = [
+    cb.id,
+    cb.candidateName || "",
+    cb.phone || "",
+    cb.roleTitle || "",
+    cb.resumeText || "",
+    cb.jobDescription || "",
+    cb.customQuestions || "",
+    cb.scheduledFor || "",
+    cb.note || "",
+    nowInIst(),
+  ];
+
+  if (existingRow) {
+    sheet.getRange(existingRow, 1, 1, values.length).setValues([values]);
+  } else {
+    sheet.appendRow(values);
+  }
+  return jsonResponse({ ok: true });
+}
+
+// Called once the backend has actually placed the callback (or the candidate's record already
+// covers it locally and there's nothing left to recover) — without this, the same row would keep
+// coming back from listCallbacks and get redialed on every future poll.
+function clearCallback(id) {
+  if (!id) return jsonResponse({ ok: false, error: "callbackId is required" });
+  const sheet = getCallbacksSheet();
+  const row = findCallbackRow(sheet, id);
+  if (row) sheet.deleteRow(row);
+  return jsonResponse({ ok: true });
+}
+
+function findCallbackRow(sheet, id) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (ids[i][0] === id) return i + 2; // +1 for header row, +1 for 0-index
+  }
+  return null;
 }
 
 // Saves the candidate's resume to Drive (in a dedicated folder, created on first use) and
@@ -135,8 +250,132 @@ function saveResumeToDrive(row) {
   return file.getUrl();
 }
 
+const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// Saves a generated HR letter's .docx and .pdf to Drive and logs a row for it, mirroring
+// saveResumeToDrive above (same folder-per-purpose, same "createFolder on first use" pattern).
+// doc.values is an arbitrary object of every field the form had (label -> what HR typed) —
+// dumped into the sheet as JSON in one column purely as an audit trail; it's never read back by
+// anything, unlike doc.docxBase64/pdfBase64/name/documentType/templateName below, which are.
+function saveGeneratedDocument(doc) {
+  if (!doc.id) return jsonResponse({ ok: false, error: "document.id is required" });
+  if (!doc.docxBase64 || !doc.pdfBase64) {
+    return jsonResponse({ ok: false, error: "document.docxBase64 and document.pdfBase64 are required" });
+  }
+
+  const folders = DriveApp.getFoldersByName(DOCUMENTS_DRIVE_FOLDER_NAME);
+  const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(DOCUMENTS_DRIVE_FOLDER_NAME);
+  const safeName = (doc.name || "document").replace(/[^\w\- ]/g, "").trim() || "document";
+  const label = `${safeName} — ${doc.templateName || "Document"}`;
+
+  const docxFile = folder.createFile(Utilities.newBlob(Utilities.base64Decode(doc.docxBase64), DOCX_MIME_TYPE, `${label}.docx`));
+  docxFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const pdfFile = folder.createFile(Utilities.newBlob(Utilities.base64Decode(doc.pdfBase64), MimeType.PDF, `${label}.pdf`));
+  pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(DOCUMENTS_TAB);
+  if (!sheet) sheet = ss.insertSheet(DOCUMENTS_TAB);
+  if (sheet.getLastRow() === 0) sheet.appendRow(DOCUMENTS_HEADERS);
+
+  sheet.appendRow([
+    doc.id,
+    doc.templateName || "",
+    doc.name || "",
+    nowInIst(),
+    docxFile.getUrl(),
+    pdfFile.getUrl(),
+    JSON.stringify(doc.values || {}),
+  ]);
+
+  return jsonResponse({ ok: true, docxUrl: docxFile.getUrl(), pdfUrl: pdfFile.getUrl() });
+}
+
+function handleConvertDocxToPdf(body) {
+  if (!body.docxBase64) return jsonResponse({ ok: false, error: "docxBase64 is required" });
+  try {
+    return jsonResponse({ ok: true, pdfBase64: convertDocxToPdf(body.docxBase64) });
+  } catch (err) {
+    return jsonResponse({ ok: false, error: err.message });
+  }
+}
+
+// Converts a filled-in HR letter .docx to PDF using Drive's own DOCX importer — the same
+// Word-compatible rendering engine behind "open in Google Docs" — instead of the Node backend's
+// own mammoth+Puppeteer pipeline. mammoth deliberately converts to plain semantic HTML and
+// discards direct formatting it doesn't recognize as meaningful (cell background shading, the
+// tinted callout box, letter-spaced headings, the full-page decorative letterhead graphic), which
+// is why letters generated that way came out visually flat compared to the original template.
+// Drive's importer reproduces all of that because it's a real Word-layout-aware renderer, not a
+// simplifying one.
+//
+// The mechanism: upload the .docx bytes but *ask Drive to store them as* a Google Doc
+// (mimeType: MimeType.GOOGLE_DOCS) — that's what triggers Drive's own conversion on upload, the
+// same thing happens when you drag a .docx into Drive and open it. Then export that temporary
+// Google Doc back out as a PDF and delete it — only the PDF bytes are kept; the original .docx
+// this app hands out for editing is untouched by any of this.
+//
+// This goes through raw Drive v3 REST calls (UrlFetchApp + ScriptApp.getOAuthToken()) rather than
+// the Advanced Drive Service, so it works with zero extra setup: the script already holds full
+// Drive scope from the DriveApp calls elsewhere in this file (saveResumeToDrive,
+// saveGeneratedDocument), and that's all a bearer token from getOAuthToken() needs to carry.
+function convertDocxToPdf(base64Docx) {
+  const boundary = "hr-ai-interviewer-boundary";
+  const metadata = { name: "HR AI Interviewer — temp PDF conversion", mimeType: MimeType.GOOGLE_DOCS };
+  const multipartBody =
+    "--" + boundary + "\r\n" +
+    "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+    JSON.stringify(metadata) + "\r\n" +
+    "--" + boundary + "\r\n" +
+    "Content-Type: " + DOCX_MIME_TYPE + "\r\n" +
+    "Content-Transfer-Encoding: base64\r\n\r\n" +
+    base64Docx + "\r\n" +
+    "--" + boundary + "--";
+
+  const uploadResponse = UrlFetchApp.fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+    method: "post",
+    contentType: "multipart/related; boundary=" + boundary,
+    payload: multipartBody,
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+  const uploaded = JSON.parse(uploadResponse.getContentText());
+  if (!uploaded.id) {
+    throw new Error("Drive conversion upload failed: " + uploadResponse.getContentText().slice(0, 300));
+  }
+
+  try {
+    const exportResponse = UrlFetchApp.fetch(
+      `https://www.googleapis.com/drive/v3/files/${uploaded.id}/export?mimeType=application/pdf`,
+      { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }
+    );
+    if (exportResponse.getResponseCode() !== 200) {
+      throw new Error("Drive PDF export failed: " + exportResponse.getContentText().slice(0, 300));
+    }
+    return Utilities.base64Encode(exportResponse.getBlob().getBytes());
+  } finally {
+    // Best-effort cleanup — a failed trash call shouldn't fail the whole conversion when the PDF
+    // itself already came back fine.
+    try {
+      DriveApp.getFileById(uploaded.id).setTrashed(true);
+    } catch (cleanupErr) {
+      // ignore
+    }
+  }
+}
+
 function joinList(list) {
   return Array.isArray(list) ? list.join("; ") : list || "";
+}
+
+// new Date().toISOString() is always UTC — that's what was showing up as e.g.
+// "2026-09-11T13:37:58.576Z" in the sheet instead of the actual India time the call happened at
+// (13:37 UTC is 19:07 IST — 5 hours 30 minutes later, easy to misread as "wrong by hours" if you
+// don't do the offset math). Format explicitly in the India time zone instead, human-readable,
+// so "Logged at" matches what a HR person actually experienced on the clock.
+function nowInIst() {
+  return Utilities.formatDate(new Date(), "Asia/Kolkata", "dd MMM yyyy, HH:mm:ss 'IST'");
 }
 
 function formatDuration(seconds) {
@@ -146,8 +385,36 @@ function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-// Lets you open the Web app URL directly in a browser to sanity-check it's deployed.
-function doGet() {
+// With no query params, this just lets you open the Web app URL directly in a browser to
+// sanity-check it's deployed. ?action=listCallbacks&secret=... (used by callbackScheduler.js on
+// the backend) returns every still-pending callback row instead, so the backend can notice one is
+// due even after losing its own in-memory record of it.
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (params.action === "listCallbacks") {
+    if (params.secret !== SECRET) {
+      return jsonResponse({ ok: false, error: "Unauthorized" });
+    }
+    const sheet = getCallbacksSheet();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return jsonResponse({ ok: true, callbacks: [] });
+
+    const rows = sheet.getRange(2, 1, lastRow - 1, CALLBACK_HEADERS.length).getValues();
+    const callbacks = rows.map((r) => ({
+      id: r[0],
+      candidateName: r[1],
+      phone: r[2],
+      roleTitle: r[3],
+      resumeText: r[4],
+      jobDescription: r[5],
+      customQuestions: r[6],
+      scheduledFor: r[7],
+      note: r[8],
+      createdAt: r[9],
+    }));
+    return jsonResponse({ ok: true, callbacks });
+  }
+
   return jsonResponse({ ok: true, message: "HR interviewer logging endpoint is live." });
 }
 

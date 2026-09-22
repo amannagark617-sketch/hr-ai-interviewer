@@ -1,5 +1,5 @@
 import zlib from "node:zlib";
-import { PDFDocument, PDFName, PDFString, PDFDict, PDFArray, PDFRawStream, PDFNumber } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString, PDFDict, PDFArray, PDFRawStream, PDFNumber, rgb } from "pdf-lib";
 
 // The AmbitionBox rating badge baked into the letterhead image (bottom-right corner, above the
 // footer bar) should link to the company's actual AmbitionBox page, but a raster image has no
@@ -22,6 +22,12 @@ const BADGE_LINK_BOX = { leftFrac: 1965 / 2481, topFrac: 3020 / 3508, rightFrac:
 // letterhead background variant seen so far (1447-1813px wide) — anything this big showing up
 // inside a rendered page's own content has no legitimate reason to be there.
 const LARGE_IMAGE_THRESHOLD_PX = 400;
+
+// Measured the same way as docxToPdf.js's own PAGE_TOP_MARGIN comment: the letterhead's logo +
+// rule line occupies roughly the top 11% of the page. A small buffer on top of that (11.5%) makes
+// sure the rule line is fully covered with no visible sliver, without eating into where body text
+// actually starts (which already clears this same ~11% by design).
+const LOGO_CROP_FRACTION = 0.115;
 
 // Draws the template's own letterhead image (see docxBackgroundImages.js) as a real full-bleed
 // background on every page of an already-rendered PDF, regardless of which renderer produced that
@@ -57,7 +63,7 @@ const LARGE_IMAGE_THRESHOLD_PX = 400;
 //
 // pdf-lib has no native/system dependencies (pure JS), so this works under buildpack-only hosting
 // (Google AI Studio's deploy flow, Cloud Run source deploys) same as everything else in this app.
-export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages) {
+export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, { cropLogoOnContinuationPages = false } = {}) {
   if (!backgroundImages.length) return pdfBytes;
 
   const srcDoc = await PDFDocument.load(pdfBytes);
@@ -74,7 +80,7 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages) {
   const image = isJpeg ? await outDoc.embedJpg(imageBytes) : await outDoc.embedPng(imageBytes);
 
   const embeddedPages = await outDoc.embedPages(srcDoc.getPages());
-  for (const embeddedPage of embeddedPages) {
+  embeddedPages.forEach((embeddedPage, pageIndex) => {
     const { width, height } = embeddedPage;
     const page = outDoc.addPage([width, height]);
     // Background first (bottom-most layer), then the original page's own content drawn on top —
@@ -82,9 +88,18 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages) {
     // letterhead rather than under it. Any leftover background image the original content itself
     // held has already been neutralized above, so this is the only background that can render.
     page.drawImage(image, { x: 0, y: 0, width, height });
+    // Increment Letter only: its salary breakdown table can spill onto a 2nd+ page, and HR asked
+    // for those continuation pages to not repeat the logo + rule line at the top (page 1 keeps
+    // the full letterhead). There's no sub-region draw in pdf-lib's API to crop the background
+    // image itself, so this paints a plain opaque white rectangle over just that top strip,
+    // covering it after the fact rather than drawing a cropped image.
+    if (cropLogoOnContinuationPages && pageIndex > 0) {
+      const cropHeight = height * LOGO_CROP_FRACTION;
+      page.drawRectangle({ x: 0, y: height - cropHeight, width, height: cropHeight, color: rgb(1, 1, 1) });
+    }
     page.drawPage(embeddedPage, { x: 0, y: 0, width, height });
     addLinkAnnotation(outDoc, page, badgeRectForPage(width, height), BADGE_LINK_URL);
-  }
+  });
 
   return Buffer.from(await outDoc.save());
 }

@@ -29,7 +29,7 @@ import { overlayLetterheadOnEveryPage } from "./letterheadOverlay.js";
 // appears to drop these page-anchored pasted images outright. Instead, see letterheadOverlay.js:
 // it's composited directly onto the finished PDF's pages afterward, once page boundaries are
 // already fixed and unambiguous, regardless of which renderer produced the rest of the page.
-export async function docxToPdf(docxBuffer) {
+export async function docxToPdf(docxBuffer, { templateId } = {}) {
   const backgroundImages = extractBackgroundImages(docxBuffer);
 
   let pdf;
@@ -42,7 +42,13 @@ export async function docxToPdf(docxBuffer) {
     pdf = await docxToPdfLocal(docxBuffer, backgroundImages);
   }
 
-  const finalPdf = await overlayLetterheadOnEveryPage(pdf, backgroundImages);
+  // Increment Letter's salary breakdown table routinely spills onto a 2nd (and later) page — HR
+  // asked for the repeated logo + rule line at the top of those continuation pages to go, while
+  // keeping the rest of the letterhead (footer bar etc.) and the full letterhead on page 1
+  // exactly as-is. See overlayLetterheadOnEveryPage's own cropLogoOnContinuationPages doc for how.
+  const finalPdf = await overlayLetterheadOnEveryPage(pdf, backgroundImages, {
+    cropLogoOnContinuationPages: templateId === "increment-letter",
+  });
   return { pdf: finalPdf };
 }
 

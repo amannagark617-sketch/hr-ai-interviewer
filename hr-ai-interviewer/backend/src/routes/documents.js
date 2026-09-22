@@ -48,7 +48,7 @@ documentsRouter.post("/", async (req, res) => {
   try {
     const { fields } = getTemplateFields(templateId);
     const docxBuffer = renderTemplateDocx(templateId, values);
-    const { pdf: pdfBuffer } = await docxToPdf(docxBuffer);
+    const { pdf: pdfBuffer } = await docxToPdf(docxBuffer, { templateId });
     const name = derivePrimaryName(fields, values);
 
     const document = store.createDocument({
@@ -93,7 +93,7 @@ documentsRouter.patch("/:id", async (req, res) => {
     const mergedValues = { ...existing.values, ...values };
     const { fields } = getTemplateFields(existing.templateId);
     const docxBuffer = renderTemplateDocx(existing.templateId, mergedValues);
-    const { pdf: pdfBuffer } = await docxToPdf(docxBuffer);
+    const { pdf: pdfBuffer } = await docxToPdf(docxBuffer, { templateId: existing.templateId });
     const name = derivePrimaryName(fields, mergedValues);
 
     const document = store.updateDocument(existing.id, {

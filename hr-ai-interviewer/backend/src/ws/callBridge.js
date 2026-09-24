@@ -360,6 +360,8 @@ export function attachCallBridge(httpServer) {
     let setupComplete = false;
     let loggedAudioFormat = false;
     let audioChunkIndex = 0;
+    let unrecognizedServerContentLogged = 0;
+    let transcriptionChunkCount = 0;
     const bridgeStartedAt = Date.now();
     geminiSocket.on("message", (raw) => {
       let msg;
@@ -525,6 +527,32 @@ export function attachCallBridge(httpServer) {
 
         const inputTranscription = msg?.serverContent?.inputTranscription?.text;
         if (inputTranscription) transcript += `Candidate: ${inputTranscription}\n`;
+
+        // A real call was reported as sounding completely normal (agent talked, candidate
+        // talked, both heard each other) but came out of /hangup with zero transcript — meaning
+        // outputTranscription/inputTranscription above never fired even though the actual audio
+        // plainly did. That can only mean either Gemini's transcription payload lands under a
+        // different shape than the two lines above expect, or it never showed up in
+        // msg.serverContent at all for some messages. Log the first several transcription chunks
+        // we DO capture (so a look at the logs confirms whether/when it's working at all), and
+        // separately flag any serverContent message that isn't audio, isn't "interrupted", and
+        // isn't a transcription chunk we recognized — dumping its raw shape is what would reveal
+        // a field/key mismatch here, rather than us continuing to guess at Gemini Live's exact
+        // protocol from documentation alone.
+        if (outputTranscription || inputTranscription) {
+          if (transcriptionChunkCount < 20) {
+            console.log(
+              `[callBridge] transcription chunk #${transcriptionChunkCount} call=${callId} ` +
+                `output=${JSON.stringify(outputTranscription || null)} input=${JSON.stringify(inputTranscription || null)}`
+            );
+          }
+          transcriptionChunkCount++;
+        } else if (msg?.serverContent && !audioPart && !msg.serverContent.interrupted) {
+          if (unrecognizedServerContentLogged < 10) {
+            unrecognizedServerContentLogged++;
+            console.log(`[callBridge] Unrecognized serverContent shape for call ${callId} (no audio, no known transcription field): ${JSON.stringify(msg.serverContent).slice(0, 2000)}`);
+          }
+        }
       } catch (err) {
         console.error(`[callBridge] Error handling Gemini message for call ${callId}:`, err);
       }
@@ -571,7 +599,10 @@ export function attachCallBridge(httpServer) {
       }
 
       if (frame.event === "stop") {
-        console.log(`[callBridge] Plivo stream stopped for call ${callId}`);
+        console.log(
+          `[callBridge] Plivo stream stopped for call ${callId} — transcriptionChunks=${transcriptionChunkCount} ` +
+            `transcriptLength=${transcript.length} unrecognizedServerContent=${unrecognizedServerContentLogged}`
+        );
         store.updateCall(callId, { transcript });
         geminiSocket.close();
       }
@@ -582,7 +613,10 @@ export function attachCallBridge(httpServer) {
     });
 
     plivoSocket.on("close", (code, reason) => {
-      console.log(`[callBridge] Plivo socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"}`);
+      console.log(
+        `[callBridge] Plivo socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"} — ` +
+          `transcriptionChunks=${transcriptionChunkCount} transcriptLength=${transcript.length} unrecognizedServerContent=${unrecognizedServerContentLogged}`
+      );
       store.updateCall(callId, { transcript });
       if (geminiSocket.readyState === WebSocket.OPEN) geminiSocket.close();
     });

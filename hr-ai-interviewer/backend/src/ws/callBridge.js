@@ -254,9 +254,20 @@ function openGeminiLiveSession(jobDescription, candidate, callId, customQuestion
           // a candidate experiences as "the AI didn't listen to me and just moved on." Lowering
           // end-of-speech sensitivity and raising the silence window they need before the turn
           // is considered finished gives real phone-call pauses room to happen.
+          //
+          // startOfSpeechSensitivity is the OPPOSITE knob — how quickly Gemini notices the
+          // candidate has started talking at all — and was previously also set LOW, which is the
+          // wrong direction for that one: LOW means it takes a longer, clearer run of speech
+          // before Gemini registers "the human is talking now," so the agent kept right on
+          // talking over the first second or so of whatever the candidate said (reported directly
+          // from a real call: "she isn't waiting for human to respond, she is keep speaking").
+          // HIGH detects that onset immediately instead, which is what a real phone conversation
+          // needs — nobody expects to have to talk over an interviewer to be heard. This is
+          // independent of the end-of-speech tuning above (that one is about not cutting the
+          // candidate off mid-thought; this one is about the agent noticing they started at all).
           realtimeInputConfig: {
             automaticActivityDetection: {
-              startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
+              startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
               endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
               prefixPaddingMs: 200,
               silenceDurationMs: 800,
@@ -357,6 +368,15 @@ export function attachCallBridge(httpServer) {
     const customQuestions = role?.customQuestions || "";
     const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId, customQuestions);
     let transcript = "";
+    // Set from Plivo's own "start" frame below — required to send clearAudio (see the
+    // "interrupted" handling further down), which is Plivo's real, documented mechanism for
+    // flushing audio already sent to it. Without this, a barge-in only stopped us from sending
+    // MORE audio; whatever had already been forwarded (sent with no pacing — see
+    // resamplePcm16's caller below) kept right on playing out to completion regardless, which is
+    // what a candidate experiences as the agent talking over them for several more seconds after
+    // they'd already started speaking, then a long dead patch before it actually responds to
+    // them — reported directly from a real call as "a very big awkward delay."
+    let plivoStreamId = null;
     let setupComplete = false;
     let loggedAudioFormat = false;
     let audioChunkIndex = 0;
@@ -472,11 +492,23 @@ export function attachCallBridge(httpServer) {
         }
 
         // Model was interrupted (candidate started talking over it) — Gemini stops generating on
-        // its own, but Plivo may still be playing out audio frames we already sent. There's no
-        // documented "clear the playback queue" event for Plivo streams, so the best we can do here
-        // is stop forwarding further audio for this turn; verify against a live test call whether
-        // any perceptible overlap remains.
-        if (msg?.serverContent?.interrupted) return;
+        // its own, but Plivo may still be playing out audio frames we already sent (sent with no
+        // pacing, so there can be a real backlog queued at Plivo by the time this fires). Plivo
+        // DOES support clearing that queue — a clearAudio event, keyed by the same streamId its
+        // own "start" frame handed us — which actually flushes whatever's left instead of letting
+        // it keep playing out to the end. Skipping this (as an earlier version of this file did,
+        // before that was confirmed) is exactly what produced the "AI keeps talking over me, then
+        // a big awkward delay" a real call reported: the leftover backlog plays out regardless of
+        // us no longer sending anything new, and only once THAT finishes does real silence (and
+        // eventually a real response) begin.
+        if (msg?.serverContent?.interrupted) {
+          if (plivoStreamId && plivoSocket.readyState === WebSocket.OPEN) {
+            plivoSocket.send(JSON.stringify({ event: "clearAudio", streamId: plivoStreamId }));
+          } else {
+            console.error(`[callBridge] Call ${callId} interrupted but no plivoStreamId yet — cannot clear buffered audio.`);
+          }
+          return;
+        }
 
         // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
         // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
@@ -508,9 +540,13 @@ export function attachCallBridge(httpServer) {
           // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
           // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
           // contentType attribute, not here — and sampleRate is a string, not a number.
+          // streamId identifies which stream this audio belongs to — same field Plivo expects
+          // back on a clearAudio event (see the "interrupted" handling above), sent on every
+          // playAudio (not just clearAudio) since that's the documented shape for the event.
           plivoSocket.send(
             JSON.stringify({
               event: "playAudio",
+              streamId: plivoStreamId,
               media: {
                 contentType: "audio/x-l16",
                 sampleRate: String(PLIVO_PLAYBACK_RATE),
@@ -580,7 +616,13 @@ export function attachCallBridge(httpServer) {
       }
 
       if (frame.event === "start") {
-        console.log(`[callBridge] Plivo stream started for call ${callId}`);
+        // start.streamId (camelCase) is what Plivo's own playAudio/clearAudio events expect back
+        // — confirmed against Plivo's published Audio Streaming event shapes, not guessed.
+        plivoStreamId = frame.start?.streamId || null;
+        console.log(`[callBridge] Plivo stream started for call ${callId}, streamId=${plivoStreamId}`);
+        if (!plivoStreamId) {
+          console.error(`[callBridge] Call ${callId}: Plivo "start" frame had no streamId — clearAudio on interruption won't work for this call. Raw frame: ${JSON.stringify(frame).slice(0, 500)}`);
+        }
       }
 
       if (frame.event === "media" && geminiSocket.readyState === WebSocket.OPEN) {

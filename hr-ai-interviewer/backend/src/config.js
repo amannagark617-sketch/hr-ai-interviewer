@@ -16,7 +16,18 @@ export const config = {
     textModel: process.env.GEMINI_TEXT_MODEL || "gemini-3.6-flash",
     // Same deal for the Live API (phone call) model — separate lineage/rotation schedule from
     // the text model above, so it gets its own override.
-    liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-3.1-flash-live-preview",
+    //
+    // Was "models/gemini-3.1-flash-live-preview" — switched after a real interview call showed
+    // the agent talking over the candidate and going dead-silent for a while after being
+    // interrupted. That preview build has open, unresolved reports of exactly this: VAD
+    // self-interrupting mid-greeting and a "turn thrashing" regression where automaticActivityDetection
+    // settings aren't honored (see github.com/google-gemini/gemini-live-api-examples/issues/53 and
+    // github.com/google-gemini/cookbook/issues/1262). gemini-2.5-flash-native-audio-preview-12-2025
+    // is an older-numbered but more established native-audio Live model without those reports, and
+    // its own release notes specifically call out improved barge-in/speech-cutoff handling. If this
+    // turns out worse in practice, revert with one env var — GEMINI_LIVE_MODEL=models/gemini-3.1-flash-live-preview
+    // — no code change needed.
+    liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-2.5-flash-native-audio-preview-12-2025",
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
     // BCP-47 language code for the Live API's spoken output — this is what actually controls

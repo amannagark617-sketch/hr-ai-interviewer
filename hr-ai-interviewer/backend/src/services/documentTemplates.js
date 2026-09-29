@@ -69,6 +69,7 @@ function createImageModule() {
 export const DOCUMENT_TEMPLATES = [
   { id: "offer-letter", name: "Offer Letter", file: "offer-letter.docx" },
   { id: "appointment-letter", name: "Appointment Letter", file: "appointment-letter.docx" },
+  { id: "confirmation-letter", name: "Confirmation Letter", file: "confirmation-letter.docx" },
   { id: "experience-letter", name: "Experience Letter", file: "experience-letter.docx" },
   { id: "increment-letter", name: "Increment Letter", file: "increment-letter.docx" },
   { id: "internship-joining-letter", name: "Internship Joining Letter", file: "internship-joining-letter.docx" },

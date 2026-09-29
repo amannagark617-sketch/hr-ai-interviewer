@@ -638,7 +638,6 @@ export default function Documents() {
                       <IconDocument />
                     </span>
                     <div style={{ fontSize: 14.5, fontWeight: 600 }}>{t.name}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--faint)" }}>{t.fields.length} fields to fill</div>
                   </button>
                 );
               })}

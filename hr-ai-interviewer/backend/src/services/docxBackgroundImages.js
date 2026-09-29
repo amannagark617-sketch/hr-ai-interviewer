@@ -64,6 +64,14 @@ function readPngPixelSize(buffer) {
   return { widthPx: buffer.readUInt32BE(16), heightPx: buffer.readUInt32BE(20) };
 }
 
+// Measured from Confirmation Letter's own badge anchor, which (unlike Appointment Letter's copies
+// of the very same picture — see below) happens to use relativeFrom="page", so its intended
+// position is knowable exactly, straight from the XML. Appointment Letter shares the identical
+// page size/margins and the identical footer artwork (same header1.xml picture, same pgSz/pgMar —
+// checked directly against both .docx files), so "how far down the page the badge belongs" is
+// reused here as a template-family constant rather than re-derived per template.
+const FOOTER_BADGE_TOP_OFFSET_EMU = 9162719;
+
 // HR's newer template family (Appointment Letter, Confirmation Letter — see documentTemplates.js)
 // drops the AmbitionBox rating badge onto the page as its own small floating picture, separate
 // from the letterhead artwork above (which these templates instead supply via a real Word Header,
@@ -72,16 +80,29 @@ function readPngPixelSize(buffer) {
 // mammoth ignores it entirely (see extractBackgroundImages' own comment), and Drive has already
 // been observed re-rasterizing a background picture inconsistently between pages (see
 // letterheadOverlay.js) — so the same "read the real position out of the XML, then draw it fresh"
-// approach used for the letterhead is applied here too, at whatever exact spot HR actually placed
-// it, rather than trusting either renderer to reproduce it.
+// approach used for the letterhead is applied here too, at whatever spot HR actually intended,
+// rather than trusting either renderer to reproduce it.
 //
-// This only recovers position for the one case where it's actually knowable without simulating
-// Word's page layout: a <wp:positionV relativeFrom="page"> anchor gives an absolute offset from
-// the page's own top edge, independent of anything else on the page. A paragraph- or line-relative
-// anchor (as Appointment Letter's own copy of this same badge happens to use, pasted once per page
-// at a slightly different offset each time) has no such fixed reference — where it actually lands
-// depends on real pagination, which isn't recoverable from the XML alone, so those are left alone
-// entirely rather than guessing.
+// Two different anchoring styles show up across the two templates, needing two different
+// confidence levels:
+//
+// - Confirmation Letter's badge uses <wp:positionV relativeFrom="page"> — an absolute offset from
+//   the page's own top edge, independent of anything else on the page. This is real, exact
+//   position, recoverable straight from the XML; everyPage:true tells the overlay to draw it on
+//   every generated page unconditionally, same as the full-page letterhead.
+//
+// - Appointment Letter instead pastes the very same picture once per page, each copy anchored
+//   relative to whatever paragraph happens to be nearby (<wp:positionV relativeFrom="paragraph">)
+//   at a slightly different offset each time — there's no fixed reference to recover an exact
+//   position from, since where a paragraph-relative anchor actually lands depends on real
+//   pagination (line wrapping, page breaks), which isn't knowable without simulating Word's own
+//   layout engine. What multiple instances of the same picture DO reliably signal is "this is a
+//   recurring per-page decoration, not one-off body content" — so this case still gets a computed
+//   target position (the shared footer slot above, at this instance's own horizontal offset, which
+//   stays consistent across instances even though the vertical one doesn't), but everyPage:false:
+//   the overlay only draws it on pages where a native copy of the same picture is actually found
+//   (see neutralizeImagesByPixelSize in letterheadOverlay.js), so a page that never had the badge
+//   pasted on it in the original doesn't gain one.
 export function extractPageAnchoredDecorations(docxBuffer) {
   const zip = new PizZip(docxBuffer);
   const documentXml = zip.file("word/document.xml")?.asText() || "";
@@ -98,8 +119,10 @@ export function extractPageAnchoredDecorations(docxBuffer) {
   const pageHeightPt = pageHeightTwips / 20;
   const leftMarginPt = leftMarginTwips / 20;
 
-  const seen = new Set();
-  const decorations = [];
+  // Group every non-letterhead floating anchor by embed target first, rather than deciding
+  // per-instance — Appointment Letter's fallback case specifically needs to see ALL of a target's
+  // instances at once (to know it repeats) before it can decide it qualifies.
+  const byTarget = new Map();
   for (const m of documentXml.matchAll(/<wp:anchor\b[^>]*>[\s\S]*?<\/wp:anchor>/g)) {
     const block = m[0];
     // A behindDoc="1" anchor is exactly what extractBackgroundImages above already claims as the
@@ -107,49 +130,68 @@ export function extractPageAnchoredDecorations(docxBuffer) {
     // relativeFrom="page" on one of its per-page copies, so without this exclusion it would get
     // picked up a second time here and drawn twice.
     if (/\bbehindDoc="1"/.test(block.slice(0, block.indexOf(">") + 1))) continue;
-    if (!/<wp:positionV\b[^>]*\brelativeFrom="page"/.test(block)) continue;
 
     const embedMatch = block.match(/r:embed="([^"]+)"/);
     const target = embedMatch && relMap[embedMatch[1]];
-    if (!target || seen.has(target)) continue;
-
     const extentMatch = /<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(block);
-    if (!extentMatch) continue;
+    if (!target || !extentMatch) continue;
+
+    const isPageRelativeV = /<wp:positionV\b[^>]*\brelativeFrom="page"/.test(block);
     const posHOffset = Number(/<wp:positionH\b[^>]*>\s*<wp:posOffset>(-?\d+)<\/wp:posOffset>/.exec(block)?.[1] || 0);
     const posVOffset = Number(/<wp:positionV\b[^>]*>\s*<wp:posOffset>(-?\d+)<\/wp:posOffset>/.exec(block)?.[1] || 0);
+    const hlinkRid = /<a:hlinkClick\b[^>]*\br:id="([^"]+)"/.exec(block)?.[1];
+
+    if (!byTarget.has(target)) byTarget.set(target, []);
+    byTarget.get(target).push({
+      isPageRelativeV,
+      posHOffset,
+      posVOffset,
+      widthPt: Number(extentMatch[1]) / EMU_PER_POINT,
+      heightPt: Number(extentMatch[2]) / EMU_PER_POINT,
+      linkUrl: hlinkRid ? relMap[hlinkRid] : undefined,
+    });
+  }
+
+  const decorations = [];
+  for (const [target, instances] of byTarget) {
+    const exact = instances.find((i) => i.isPageRelativeV);
+    // Multiple copies of the very same picture, pasted at slightly different paragraph-relative
+    // offsets, is ambiguous on its own — Appointment Letter's own signature image does the exact
+    // same thing (appears twice, once per signature block), and that one must NOT be moved to a
+    // guessed footer position; it belongs wherever its own paragraph actually puts it. What's
+    // specific to the badge is that it's wrapped in a hyperlink (see hlinkRid below) — a plain
+    // signature or logo has no reason to link anywhere, so requiring a resolvable link here is
+    // what actually distinguishes "this is the recurring badge" from "this is repeated inline
+    // content that only happens to reuse the same picture."
+    const linked = instances.find((i) => i.linkUrl);
+    if (!exact && !linked) continue;
+    const representative = exact || linked;
 
     const mediaPath = `word/${target}`;
     const file = zip.file(mediaPath);
     if (!file) continue;
-    seen.add(target);
 
-    const widthPt = Number(extentMatch[1]) / EMU_PER_POINT;
-    const heightPt = Number(extentMatch[2]) / EMU_PER_POINT;
     // None of these templates declare a real multi-column section, so positionH's "column"
     // reference (the only one seen in practice) is the same line as the page's left text margin.
-    const xPt = leftMarginPt + posHOffset / EMU_PER_POINT;
+    const xPt = leftMarginPt + representative.posHOffset / EMU_PER_POINT;
     // Word measures positionV down from the page's top edge to the image's own top edge; PDF
     // coordinates run bottom-up, so this flips it to the image's bottom edge from the page bottom.
-    const yPt = pageHeightPt - posVOffset / EMU_PER_POINT - heightPt;
+    const topOffsetEmu = exact ? representative.posVOffset : FOOTER_BADGE_TOP_OFFSET_EMU;
+    const yPt = pageHeightPt - topOffsetEmu / EMU_PER_POINT - representative.heightPt;
 
     const buffer = file.asNodeBuffer();
     const mimeType = mimeTypeForPath(mediaPath);
     const pixelSize = mimeType === "image/png" ? readPngPixelSize(buffer) : null;
-    // The badge is wrapped in its own hyperlink in the source .docx (so it's clickable there too,
-    // in whatever way Word's own picture-hyperlink support renders) — reusing that same URL here
-    // means the redrawn version keeps being a real link in the generated PDF, without hand-coding
-    // which URL any given decoration should point to.
-    const hlinkRid = /<a:hlinkClick\b[^>]*\br:id="([^"]+)"/.exec(block)?.[1];
-    const linkUrl = hlinkRid ? relMap[hlinkRid] : undefined;
     decorations.push({
       dataUri: `data:${mimeType};base64,${buffer.toString("base64")}`,
       widthPx: pixelSize?.widthPx || 0,
       heightPx: pixelSize?.heightPx || 0,
       xPt,
       yPt,
-      widthPt,
-      heightPt,
-      linkUrl,
+      widthPt: representative.widthPt,
+      heightPt: representative.heightPt,
+      linkUrl: representative.linkUrl,
+      everyPage: Boolean(exact),
     });
   }
   return decorations;

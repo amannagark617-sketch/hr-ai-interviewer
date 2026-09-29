@@ -69,17 +69,21 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
   const srcDoc = await PDFDocument.load(pdfBytes);
   const outDoc = await PDFDocument.create();
 
-  for (const page of srcDoc.getPages()) {
+  // Indexed [pageIndex][decorationIndex] — for an everyPage:false decoration (Appointment
+  // Letter's per-page-repeated badge; see extractPageAnchoredDecorations), this is the only record
+  // of which pages actually had a copy of it, since its own position can't be trusted to say so.
+  const foundOnPage = srcDoc.getPages().map(() => []);
+  srcDoc.getPages().forEach((page, pageIndex) => {
     neutralizeLargeImages(srcDoc, page, LARGE_IMAGE_THRESHOLD_PX);
     neutralizeFullPageWhiteFill(srcDoc, page);
     // Whatever the renderer (Drive or the local mammoth+Puppeteer fallback) did with each
     // decoration's own floating picture — dropped it at the wrong spot, re-rasterized it fuzzy,
     // or both — gets removed here so only the freshly-drawn, correctly-positioned copy below is
     // ever visible; leaving the original in place would show both.
-    for (const { widthPx, heightPx } of decorations) {
-      if (widthPx && heightPx) neutralizeImagesByPixelSize(srcDoc, page, widthPx, heightPx);
-    }
-  }
+    decorations.forEach(({ widthPx, heightPx }, i) => {
+      foundOnPage[pageIndex][i] = widthPx && heightPx ? neutralizeImagesByPixelSize(srcDoc, page, widthPx, heightPx) : false;
+    });
+  });
 
   const backgroundImage = backgroundImages.length
     ? await embedImage(outDoc, backgroundImages[0].dataUri)
@@ -111,14 +115,14 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
       addLinkAnnotation(outDoc, page, badgeRectForPage(width, height), BADGE_LINK_URL);
     }
     decorations.forEach((decoration, i) => {
-      page.drawImage(decorationImages[i], { x: decoration.xPt, y: decoration.yPt, width: decoration.widthPt, height: decoration.heightPt });
+      // everyPage:true (an exact, page-relative position — see extractPageAnchoredDecorations)
+      // draws unconditionally; everyPage:false only draws where the original actually had a copy
+      // of it, so a page that never had the badge pasted on it doesn't gain one.
+      if (!decoration.everyPage && !foundOnPage[pageIndex][i]) return;
+      const rect = { x: decoration.xPt, y: decoration.yPt, width: decoration.widthPt, height: decoration.heightPt };
+      page.drawImage(decorationImages[i], rect);
       if (decoration.linkUrl) {
-        addLinkAnnotation(
-          outDoc,
-          page,
-          { x: decoration.xPt, y: decoration.yPt, width: decoration.widthPt, height: decoration.heightPt },
-          decoration.linkUrl
-        );
+        addLinkAnnotation(outDoc, page, rect, decoration.linkUrl);
       }
     });
   });
@@ -168,10 +172,11 @@ function neutralizeLargeImages(pdfDoc, page, thresholdPx) {
 function neutralizeImagesByPixelSize(pdfDoc, page, widthPx, heightPx) {
   const resources = page.node.Resources();
   const xobjRef = resources?.get(PDFName.of("XObject"));
-  if (!xobjRef) return;
+  if (!xobjRef) return false;
   const xobjDict = pdfDoc.context.lookup(xobjRef);
-  if (!(xobjDict instanceof PDFDict)) return;
+  if (!(xobjDict instanceof PDFDict)) return false;
 
+  let found = false;
   for (const key of xobjDict.keys()) {
     const obj = pdfDoc.context.lookup(xobjDict.get(key));
     if (!obj?.dict) continue;
@@ -182,8 +187,10 @@ function neutralizeImagesByPixelSize(pdfDoc, page, widthPx, heightPx) {
     const h = height instanceof PDFNumber ? height.asNumber() : 0;
     if (w === widthPx && h === heightPx) {
       xobjDict.set(key, getTransparentPlaceholder(pdfDoc));
+      found = true;
     }
   }
+  return found;
 }
 
 // Drive's PDF export consistently opens each page's content stream with a preamble that sets the

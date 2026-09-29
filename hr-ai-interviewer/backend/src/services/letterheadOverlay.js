@@ -74,8 +74,18 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
   // of which pages actually had a copy of it, since its own position can't be trusted to say so.
   const foundOnPage = srcDoc.getPages().map(() => []);
   srcDoc.getPages().forEach((page, pageIndex) => {
-    neutralizeLargeImages(srcDoc, page, LARGE_IMAGE_THRESHOLD_PX);
-    neutralizeFullPageWhiteFill(srcDoc, page);
+    // Both of these exist only to clear the way for THIS function's own full-page background
+    // (see their own comments) — Confirmation/Appointment Letter supply their letterhead via a
+    // real Word Header instead (rendered by Drive directly into the page, not through
+    // extractBackgroundImages), so there's no replacement background here to clear the way for.
+    // Running these anyway, just because decorations.length made it past the early return below,
+    // would strip that real header image (well over the "large image" threshold) and leave
+    // nothing drawn back in its place — exactly the "letterhead vanished" regression this guards
+    // against.
+    if (backgroundImages.length) {
+      neutralizeLargeImages(srcDoc, page, LARGE_IMAGE_THRESHOLD_PX);
+      neutralizeFullPageWhiteFill(srcDoc, page);
+    }
     // Whatever the renderer (Drive or the local mammoth+Puppeteer fallback) did with each
     // decoration's own floating picture — dropped it at the wrong spot, re-rasterized it fuzzy,
     // or both — gets removed here so only the freshly-drawn, correctly-positioned copy below is

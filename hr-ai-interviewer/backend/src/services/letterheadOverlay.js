@@ -63,8 +63,8 @@ const LOGO_CROP_FRACTION = 0.115;
 //
 // pdf-lib has no native/system dependencies (pure JS), so this works under buildpack-only hosting
 // (Google AI Studio's deploy flow, Cloud Run source deploys) same as everything else in this app.
-export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, { cropLogoOnContinuationPages = false } = {}) {
-  if (!backgroundImages.length) return pdfBytes;
+export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, { cropLogoOnContinuationPages = false, decorations = [] } = {}) {
+  if (!backgroundImages.length && !decorations.length) return pdfBytes;
 
   const srcDoc = await PDFDocument.load(pdfBytes);
   const outDoc = await PDFDocument.create();
@@ -72,12 +72,19 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
   for (const page of srcDoc.getPages()) {
     neutralizeLargeImages(srcDoc, page, LARGE_IMAGE_THRESHOLD_PX);
     neutralizeFullPageWhiteFill(srcDoc, page);
+    // Whatever the renderer (Drive or the local mammoth+Puppeteer fallback) did with each
+    // decoration's own floating picture — dropped it at the wrong spot, re-rasterized it fuzzy,
+    // or both — gets removed here so only the freshly-drawn, correctly-positioned copy below is
+    // ever visible; leaving the original in place would show both.
+    for (const { widthPx, heightPx } of decorations) {
+      if (widthPx && heightPx) neutralizeImagesByPixelSize(srcDoc, page, widthPx, heightPx);
+    }
   }
 
-  const { dataUri } = backgroundImages[0];
-  const isJpeg = dataUri.startsWith("data:image/jpeg") || dataUri.startsWith("data:image/jpg");
-  const imageBytes = Buffer.from(dataUri.slice(dataUri.indexOf(",") + 1), "base64");
-  const image = isJpeg ? await outDoc.embedJpg(imageBytes) : await outDoc.embedPng(imageBytes);
+  const backgroundImage = backgroundImages.length
+    ? await embedImage(outDoc, backgroundImages[0].dataUri)
+    : null;
+  const decorationImages = await Promise.all(decorations.map((d) => embedImage(outDoc, d.dataUri)));
 
   const embeddedPages = await outDoc.embedPages(srcDoc.getPages());
   embeddedPages.forEach((embeddedPage, pageIndex) => {
@@ -87,7 +94,9 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
     // this is what makes the body text/tables from the original render sit visibly in front of the
     // letterhead rather than under it. Any leftover background image the original content itself
     // held has already been neutralized above, so this is the only background that can render.
-    page.drawImage(image, { x: 0, y: 0, width, height });
+    if (backgroundImage) {
+      page.drawImage(backgroundImage, { x: 0, y: 0, width, height });
+    }
     // Increment Letter only: its salary breakdown table can spill onto a 2nd+ page, and HR asked
     // for those continuation pages to not repeat the logo + rule line at the top (page 1 keeps
     // the full letterhead). There's no sub-region draw in pdf-lib's API to crop the background
@@ -98,10 +107,29 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
       page.drawRectangle({ x: 0, y: height - cropHeight, width, height: cropHeight, color: rgb(1, 1, 1) });
     }
     page.drawPage(embeddedPage, { x: 0, y: 0, width, height });
-    addLinkAnnotation(outDoc, page, badgeRectForPage(width, height), BADGE_LINK_URL);
+    if (backgroundImage) {
+      addLinkAnnotation(outDoc, page, badgeRectForPage(width, height), BADGE_LINK_URL);
+    }
+    decorations.forEach((decoration, i) => {
+      page.drawImage(decorationImages[i], { x: decoration.xPt, y: decoration.yPt, width: decoration.widthPt, height: decoration.heightPt });
+      if (decoration.linkUrl) {
+        addLinkAnnotation(
+          outDoc,
+          page,
+          { x: decoration.xPt, y: decoration.yPt, width: decoration.widthPt, height: decoration.heightPt },
+          decoration.linkUrl
+        );
+      }
+    });
   });
 
   return Buffer.from(await outDoc.save());
+}
+
+async function embedImage(pdfDoc, dataUri) {
+  const isJpeg = dataUri.startsWith("data:image/jpeg") || dataUri.startsWith("data:image/jpg");
+  const imageBytes = Buffer.from(dataUri.slice(dataUri.indexOf(",") + 1), "base64");
+  return isJpeg ? pdfDoc.embedJpg(imageBytes) : pdfDoc.embedPng(imageBytes);
 }
 
 // Walks one page's own (top-level) XObject resources and replaces any Image at least
@@ -126,6 +154,33 @@ function neutralizeLargeImages(pdfDoc, page, thresholdPx) {
     const w = width instanceof PDFNumber ? width.asNumber() : 0;
     const h = height instanceof PDFNumber ? height.asNumber() : 0;
     if (w >= thresholdPx || h >= thresholdPx) {
+      xobjDict.set(key, getTransparentPlaceholder(pdfDoc));
+    }
+  }
+}
+
+// Same idea as neutralizeLargeImages, but matched by exact pixel dimensions rather than a size
+// threshold — for a small decoration (see docxBackgroundImages.js's extractPageAnchoredDecorations)
+// rather than a full-page background, "large" doesn't apply, but its native pixel size is known
+// and specific enough that matching on it exactly is a safe, targeted way to find and remove
+// whatever copy the original renderer left behind, without touching any other embedded image
+// (a signature, say) that happens to also be small.
+function neutralizeImagesByPixelSize(pdfDoc, page, widthPx, heightPx) {
+  const resources = page.node.Resources();
+  const xobjRef = resources?.get(PDFName.of("XObject"));
+  if (!xobjRef) return;
+  const xobjDict = pdfDoc.context.lookup(xobjRef);
+  if (!(xobjDict instanceof PDFDict)) return;
+
+  for (const key of xobjDict.keys()) {
+    const obj = pdfDoc.context.lookup(xobjDict.get(key));
+    if (!obj?.dict) continue;
+    if (obj.dict.get(PDFName.of("Subtype"))?.toString() !== "/Image") continue;
+    const width = obj.dict.get(PDFName.of("Width"));
+    const height = obj.dict.get(PDFName.of("Height"));
+    const w = width instanceof PDFNumber ? width.asNumber() : 0;
+    const h = height instanceof PDFNumber ? height.asNumber() : 0;
+    if (w === widthPx && h === heightPx) {
       xobjDict.set(key, getTransparentPlaceholder(pdfDoc));
     }
   }

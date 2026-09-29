@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { config } from "../config.js";
 import { store } from "../data/store.js";
 import { hangupCall } from "../services/plivoService.js";
+import { savePendingCallback } from "../services/sheetsService.js";
 
 // ---------------------------------------------------------------------------
 // IMPORTANT: this file has NOT been run against live Plivo/Gemini traffic.
@@ -87,7 +88,17 @@ evening", "call me after 6", "Monday morning") and you need to resolve it to an 
 How to sound human, not like an AI:
 - Keep every turn SHORT — one or two sentences, sometimes just a few words ("Got it.", "Nice, tell me
   more about that."). Never deliver a paragraph in one breath.
-- Ask ONE question at a time and actually wait for the answer. Don't stack multiple questions together.
+- ONE question per turn, always — this applies everywhere in this call, not just the resume questions.
+  Never ask two things in the same breath ("what's your current salary, and what are you expecting?" is
+  TWO questions — ask the first, wait for the answer, only then ask the second). If a step below lists
+  several things to find out, that means several separate turns, one question each, never a combined
+  list read out at once.
+- Actually wait for a real answer before moving on — silence is NOT an answer. If you ask something and
+  there's a pause with no real response, do NOT just move on to a different question as if they'd
+  answered or didn't want to. Give them a moment, then check in gently ("take your time" / "you still
+  there?" / a soft repeat of the question), and keep waiting for an actual answer to THAT question
+  before continuing. The only time you move on without an answer is if they explicitly say they'd
+  rather skip it or can't talk right now (see step 2's callback flow).
 - React to what they just said before moving on — a quick "that makes sense" or "oh interesting" beats
   jumping straight to the next question.
 - Talk the way people actually talk: contractions, the occasional "okay" / "gotcha", natural pacing.
@@ -95,17 +106,24 @@ How to sound human, not like an AI:
 - If they give a short or hesitant answer, gently follow up instead of filling the silence yourself.
 - If they start talking while you're mid-sentence, stop immediately and listen. Never talk over them.
 - Don't narrate what you're about to do ("Now I'll ask you about...") — just ask it.
-- Keep the whole call tight — roughly 6-8 minutes${hasCustomQuestions ? ", a bit longer if needed to fit in the mandatory questions below without rushing them" : ""}.
+- Keep the whole call tight — roughly 8-10 minutes, a bit longer if needed to fit in every step of the
+  call structure below (language, background, compensation, location${hasCustomQuestions ? ", the mandatory questions" : ""}) without rushing any of them.
 
-Language: open the call in Indian-accented English. The moment the candidate speaks or answers in a
-different language — Hindi, Tamil, Telugu, Marathi, Bengali, Punjabi, Kannada, Malayalam, Gujarati,
-or any other regional language — immediately continue the rest of the call in that same language,
-without waiting for them to ask you to switch and without asking their permission first. The same
-goes if they explicitly request a language ("can we do this in Hindi?") — switch right away and
-confirm briefly in that language, don't just acknowledge in English. Match their code-switching
-naturally too (e.g. Hinglish stays Hinglish, don't force pure English or pure Hindi). If they switch
-languages again mid-call, follow them there too. The goal: a candidate should never have to ask you
-twice to speak their language — you pick it up from how they're already talking.
+You are female — always refer to yourself with "she/her" in English, and never switch to "he/him" for
+yourself under any circumstance. This matters just as much in Hindi and every other language you speak
+in on this call: always use feminine grammatical forms for yourself. For example, in Hindi say "maine
+samajh gayi", "main bol rahi hoon", "main bata doongi" — never the masculine "samajh gaya", "bol raha
+hoon", or "bata doonga". Keep this consistent everywhere you switch languages, not just in English.
+
+Language: open the call in Indian-accented English, and ask their language preference explicitly as
+step 3 below. Separately from that explicit question — at ANY point in the call, the moment the
+candidate speaks or answers in a different language — Hindi, Tamil, Telugu, Marathi, Bengali,
+Punjabi, Kannada, Malayalam, Gujarati, or any other regional language — immediately continue the
+rest of the call in that same language, without waiting for them to ask you to switch and without
+asking permission first. Match their code-switching naturally too (e.g. Hinglish stays Hinglish,
+don't force pure English or pure Hindi). If they switch languages again mid-call, follow them there
+too. The goal: a candidate should never have to ask you twice to speak their language — you pick it
+up from how they're already talking, on top of having asked once upfront.
 
 Never invent anything about this candidate. Only reference skills, employers, projects, or
 experience that are literally written in the resume text below. If the resume is missing, blank,
@@ -127,6 +145,12 @@ Call structure:
    - If they say no, sound busy, ask to talk later, or hesitate in a way that signals now isn't good ->
      do NOT ask any interview questions. Go straight to the callback flow below instead, then end the
      call — skip the rest of this structure entirely.
+   - If what they said is unclear, cut off, or you're not confident you actually heard a real answer
+     (dead air, a garbled word, a transcription that doesn't make sense) — that is NOT a "no". Say
+     something like "sorry, you cut out there — is now an okay time?" and ask again. NEVER end the call,
+     request a callback, or treat it as a decline based on silence or a guess. A candidate who never
+     got a real chance to answer must never end up rejected because of a bad connection or a bug on our
+     end — when in doubt, keep listening.
 
    Callback flow (only when they can't talk now): ask what day and time would work better for them.
    Once they give you something — even vague ("tomorrow evening", "after 6pm") — resolve it into an
@@ -135,27 +159,59 @@ Call structure:
    they don't give a specific time even after you ask, pick a sensible one yourself (e.g. the next
    business day, same time as this call) and tell them what you picked before calling request_callback
    — don't leave it unset.
-3. Ask 2-3 questions about the experience most relevant to this role, grounded in specifics from their
+3. Ask which language they'd be more comfortable continuing this call in — English or Hindi — as a
+   real, direct question ("would you like to continue in English, or would Hindi work better for
+   you?"), not an assumption. Then continue in whichever they pick (see the Language section above
+   for how to keep following them if they switch again later, or into a different regional language
+   entirely).
+4. Ask 2-3 questions about the experience most relevant to this role, grounded in specifics from their
    resume below (not generic questions you could ask anyone). Name the actual project, employer, or
    technology from their resume in the question itself ("Tell me about the payments system you built at
    X" beats "Tell me about your backend experience"). Once they answer, go one level deeper on
    whichever answer was most relevant to this role before moving on — ask what their specific part was,
    what was hard about it, or a number (team size, scale, timeline) — the way a real interviewer probes,
    instead of collecting a surface-level answer and moving straight to the next topic.
-4. ${hasCustomQuestions
+5. Employment background and compensation — each bullet below is its OWN separate turn: ask it, wait
+   for the actual answer, react briefly, then move to the next bullet. Never combine two of these into
+   one question.
+   - If the resume (or their own answers so far) shows they're currently working somewhere, ask why
+     they're looking to make a change right now. Wait for the answer.
+   - If they're not currently working (resume shows a gap, they say they're between jobs, a fresher,
+     etc.), ask why they left their last job instead (skip this if they've never been employed at all,
+     e.g. a fresher with no prior job). Wait for the answer.
+   - Ask their current salary (or last-drawn salary if not currently employed) — just that, on its own.
+     Wait for the answer.
+   - Then, as a separate follow-up question, ask what they're expecting for this role. Wait for the
+     answer.
+   - Whatever number they give — even if it sounds high for this role — thank them for sharing it and
+     move on naturally. NEVER react negatively, push back, sound surprised, imply it's too much, or
+     end/wind down the call because of their salary expectation. Compensation fit is something HR
+     decides afterward, not something you screen for or reject a candidate over on this call.
+6. Location and commute — only if the job description below actually states a work location/city/area.
+   If it doesn't mention one, skip this step entirely.
+   - If the resume already mentions where the candidate is currently based, ask them directly whether
+     they'd be able to travel to the job location for this role if they join. Wait for the answer.
+   - If the resume doesn't mention their location, ask where they're currently based first, as its own
+     question, and wait for the answer. Then, using your own knowledge of the geography, reason about
+     roughly how far that is from the job location and ask — as a separate follow-up turn — whether a
+     daily commute between the two would be workable for them. Don't just ask "can you travel here"
+     without having gauged the actual distance first, and don't ask both of these in one breath.
+7. ${hasCustomQuestions
     ? `Ask every question listed under "Mandatory questions" below. These were specifically chosen by
    the hiring team for this role, on top of the resume-grounded questions above — don't skip, merge, or
-   water any of them down into a generic version, even if a similar topic already came up in step 3.
+   water any of them down into a generic version, even if a similar topic already came up earlier.
    Ask them one at a time, in your own natural phrasing (don't read them robotically), and actually
    listen to each answer before moving to the next — you'll need to recall how they answered these
    specifically, since they matter for the hiring decision just as much as the resume-based questions.`
     : `(No additional mandatory questions were provided for this role — skip straight to the next step.)`
 }
-5. Ask about their availability / notice period.
-6. Give them a chance to ask one quick question, thank them genuinely, and close warmly — let them know
+8. Ask about their availability / notice period.
+9. Always — every single call, no exceptions, even if time is tight — give them a real chance to ask
+   you questions before wrapping up ("do you have any questions for me?"), actually answer whatever
+   they ask using the job description below, thank them genuinely, and close warmly, letting them know
    the team will follow up soon.
-7. Immediately after you say goodbye, call the end_call function to hang up. Don't call it before you've
-   actually said your closing line, and don't announce that you're about to call it — just call it.
+10. Immediately after you say goodbye, call the end_call function to hang up. Don't call it before
+   you've actually said your closing line, and don't announce that you're about to call it — just call it.
 
 The call has just connected as you receive this — there is no small talk before you; begin immediately
 with step 1. A message may arrive telling you the call has connected and to begin — that message is a
@@ -167,7 +223,7 @@ ${jobDescription}
 What we know about this candidate from their resume:
 ${(resumeText || "No resume on file.").slice(0, 4000)}
 ${hasCustomQuestions
-  ? `\nMandatory questions (set by the hiring team for this role — ask every one of these, see step 3):\n${customQuestions.trim()}`
+  ? `\nMandatory questions (set by the hiring team for this role — ask every one of these, see step 7):\n${customQuestions.trim()}`
   : ""
 }`;
 }
@@ -188,6 +244,33 @@ function openGeminiLiveSession(jobDescription, candidate, callId, customQuestion
               // Controls the actual accent/pronunciation — languageCode is what was missing
               // before, so the voice defaulted to sounding US/UK rather than Indian English.
               languageCode: config.gemini.voiceLanguage,
+            },
+          },
+          // Gemini Live's default voice-activity detection is tuned for quick back-and-forth
+          // text-chat-style turns, not a phone call where a candidate might pause mid-thought or
+          // there's line noise/latency. With the default (more sensitive) end-of-speech setting
+          // it was declaring the candidate's turn over after a short pause — mid-sentence — and
+          // generating the agent's next line over whatever they were about to say, which is what
+          // a candidate experiences as "the AI didn't listen to me and just moved on." Lowering
+          // end-of-speech sensitivity and raising the silence window they need before the turn
+          // is considered finished gives real phone-call pauses room to happen.
+          //
+          // startOfSpeechSensitivity is the OPPOSITE knob — how quickly Gemini notices the
+          // candidate has started talking at all — and was previously also set LOW, which is the
+          // wrong direction for that one: LOW means it takes a longer, clearer run of speech
+          // before Gemini registers "the human is talking now," so the agent kept right on
+          // talking over the first second or so of whatever the candidate said (reported directly
+          // from a real call: "she isn't waiting for human to respond, she is keep speaking").
+          // HIGH detects that onset immediately instead, which is what a real phone conversation
+          // needs — nobody expects to have to talk over an interviewer to be heard. This is
+          // independent of the end-of-speech tuning above (that one is about not cutting the
+          // candidate off mid-thought; this one is about the agent noticing they started at all).
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+              endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
+              prefixPaddingMs: 200,
+              silenceDurationMs: 800,
             },
           },
           // Without these, serverContent never carries transcription text for either side,
@@ -285,9 +368,20 @@ export function attachCallBridge(httpServer) {
     const customQuestions = role?.customQuestions || "";
     const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId, customQuestions);
     let transcript = "";
+    // Set from Plivo's own "start" frame below — required to send clearAudio (see the
+    // "interrupted" handling further down), which is Plivo's real, documented mechanism for
+    // flushing audio already sent to it. Without this, a barge-in only stopped us from sending
+    // MORE audio; whatever had already been forwarded (sent with no pacing — see
+    // resamplePcm16's caller below) kept right on playing out to completion regardless, which is
+    // what a candidate experiences as the agent talking over them for several more seconds after
+    // they'd already started speaking, then a long dead patch before it actually responds to
+    // them — reported directly from a real call as "a very big awkward delay."
+    let plivoStreamId = null;
     let setupComplete = false;
     let loggedAudioFormat = false;
     let audioChunkIndex = 0;
+    let unrecognizedServerContentLogged = 0;
+    let transcriptionChunkCount = 0;
     const bridgeStartedAt = Date.now();
     geminiSocket.on("message", (raw) => {
       let msg;
@@ -343,6 +437,24 @@ export function attachCallBridge(httpServer) {
               callbackNote: note || "",
               callbackStatus: "pending",
             });
+            // Also park it in the Sheet (see sheetsService.js) so it survives a Cloud Run restart
+            // between now and when it's due — the in-memory update above alone does not. Fire and
+            // forget: this must never block or fail the live call over a logging-sheet hiccup, and
+            // the 60s scheduler tick / request-triggered check already covers the case where this
+            // same instance is still alive when the callback comes due.
+            savePendingCallback({
+              id: candidate.id,
+              candidateName: candidate.name,
+              phone: candidate.phone,
+              roleTitle: role?.title || "",
+              resumeText: candidate.resumeText,
+              jobDescription,
+              customQuestions,
+              scheduledFor: preferredDateTime,
+              note: note || "",
+            }).catch((err) =>
+              console.error(`[callBridge] Failed to persist pending callback for candidate ${candidate.id} to Sheets:`, err.message)
+            );
           } else {
             console.error(
               `[callBridge] request_callback fired for call ${callId} but candidate or preferredDateTime missing — cannot schedule.`
@@ -380,11 +492,23 @@ export function attachCallBridge(httpServer) {
         }
 
         // Model was interrupted (candidate started talking over it) — Gemini stops generating on
-        // its own, but Plivo may still be playing out audio frames we already sent. There's no
-        // documented "clear the playback queue" event for Plivo streams, so the best we can do here
-        // is stop forwarding further audio for this turn; verify against a live test call whether
-        // any perceptible overlap remains.
-        if (msg?.serverContent?.interrupted) return;
+        // its own, but Plivo may still be playing out audio frames we already sent (sent with no
+        // pacing, so there can be a real backlog queued at Plivo by the time this fires). Plivo
+        // DOES support clearing that queue — a clearAudio event, keyed by the same streamId its
+        // own "start" frame handed us — which actually flushes whatever's left instead of letting
+        // it keep playing out to the end. Skipping this (as an earlier version of this file did,
+        // before that was confirmed) is exactly what produced the "AI keeps talking over me, then
+        // a big awkward delay" a real call reported: the leftover backlog plays out regardless of
+        // us no longer sending anything new, and only once THAT finishes does real silence (and
+        // eventually a real response) begin.
+        if (msg?.serverContent?.interrupted) {
+          if (plivoStreamId && plivoSocket.readyState === WebSocket.OPEN) {
+            plivoSocket.send(JSON.stringify({ event: "clearAudio", streamId: plivoStreamId }));
+          } else {
+            console.error(`[callBridge] Call ${callId} interrupted but no plivoStreamId yet — cannot clear buffered audio.`);
+          }
+          return;
+        }
 
         // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
         // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
@@ -416,9 +540,13 @@ export function attachCallBridge(httpServer) {
           // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
           // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
           // contentType attribute, not here — and sampleRate is a string, not a number.
+          // streamId identifies which stream this audio belongs to — same field Plivo expects
+          // back on a clearAudio event (see the "interrupted" handling above), sent on every
+          // playAudio (not just clearAudio) since that's the documented shape for the event.
           plivoSocket.send(
             JSON.stringify({
               event: "playAudio",
+              streamId: plivoStreamId,
               media: {
                 contentType: "audio/x-l16",
                 sampleRate: String(PLIVO_PLAYBACK_RATE),
@@ -435,6 +563,32 @@ export function attachCallBridge(httpServer) {
 
         const inputTranscription = msg?.serverContent?.inputTranscription?.text;
         if (inputTranscription) transcript += `Candidate: ${inputTranscription}\n`;
+
+        // A real call was reported as sounding completely normal (agent talked, candidate
+        // talked, both heard each other) but came out of /hangup with zero transcript — meaning
+        // outputTranscription/inputTranscription above never fired even though the actual audio
+        // plainly did. That can only mean either Gemini's transcription payload lands under a
+        // different shape than the two lines above expect, or it never showed up in
+        // msg.serverContent at all for some messages. Log the first several transcription chunks
+        // we DO capture (so a look at the logs confirms whether/when it's working at all), and
+        // separately flag any serverContent message that isn't audio, isn't "interrupted", and
+        // isn't a transcription chunk we recognized — dumping its raw shape is what would reveal
+        // a field/key mismatch here, rather than us continuing to guess at Gemini Live's exact
+        // protocol from documentation alone.
+        if (outputTranscription || inputTranscription) {
+          if (transcriptionChunkCount < 20) {
+            console.log(
+              `[callBridge] transcription chunk #${transcriptionChunkCount} call=${callId} ` +
+                `output=${JSON.stringify(outputTranscription || null)} input=${JSON.stringify(inputTranscription || null)}`
+            );
+          }
+          transcriptionChunkCount++;
+        } else if (msg?.serverContent && !audioPart && !msg.serverContent.interrupted) {
+          if (unrecognizedServerContentLogged < 10) {
+            unrecognizedServerContentLogged++;
+            console.log(`[callBridge] Unrecognized serverContent shape for call ${callId} (no audio, no known transcription field): ${JSON.stringify(msg.serverContent).slice(0, 2000)}`);
+          }
+        }
       } catch (err) {
         console.error(`[callBridge] Error handling Gemini message for call ${callId}:`, err);
       }
@@ -462,7 +616,13 @@ export function attachCallBridge(httpServer) {
       }
 
       if (frame.event === "start") {
-        console.log(`[callBridge] Plivo stream started for call ${callId}`);
+        // start.streamId (camelCase) is what Plivo's own playAudio/clearAudio events expect back
+        // — confirmed against Plivo's published Audio Streaming event shapes, not guessed.
+        plivoStreamId = frame.start?.streamId || null;
+        console.log(`[callBridge] Plivo stream started for call ${callId}, streamId=${plivoStreamId}`);
+        if (!plivoStreamId) {
+          console.error(`[callBridge] Call ${callId}: Plivo "start" frame had no streamId — clearAudio on interruption won't work for this call. Raw frame: ${JSON.stringify(frame).slice(0, 500)}`);
+        }
       }
 
       if (frame.event === "media" && geminiSocket.readyState === WebSocket.OPEN) {
@@ -481,7 +641,10 @@ export function attachCallBridge(httpServer) {
       }
 
       if (frame.event === "stop") {
-        console.log(`[callBridge] Plivo stream stopped for call ${callId}`);
+        console.log(
+          `[callBridge] Plivo stream stopped for call ${callId} — transcriptionChunks=${transcriptionChunkCount} ` +
+            `transcriptLength=${transcript.length} unrecognizedServerContent=${unrecognizedServerContentLogged}`
+        );
         store.updateCall(callId, { transcript });
         geminiSocket.close();
       }
@@ -492,7 +655,10 @@ export function attachCallBridge(httpServer) {
     });
 
     plivoSocket.on("close", (code, reason) => {
-      console.log(`[callBridge] Plivo socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"}`);
+      console.log(
+        `[callBridge] Plivo socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"} — ` +
+          `transcriptionChunks=${transcriptionChunkCount} transcriptLength=${transcript.length} unrecognizedServerContent=${unrecognizedServerContentLogged}`
+      );
       store.updateCall(callId, { transcript });
       if (geminiSocket.readyState === WebSocket.OPEN) geminiSocket.close();
     });

@@ -69,11 +69,7 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
   const srcDoc = await PDFDocument.load(pdfBytes);
   const outDoc = await PDFDocument.create();
 
-  // Indexed [pageIndex][decorationIndex] — for an everyPage:false decoration (Appointment
-  // Letter's per-page-repeated badge; see extractPageAnchoredDecorations), this is the only record
-  // of which pages actually had a copy of it, since its own position can't be trusted to say so.
-  const foundOnPage = srcDoc.getPages().map(() => []);
-  srcDoc.getPages().forEach((page, pageIndex) => {
+  for (const page of srcDoc.getPages()) {
     // Both of these exist only to clear the way for THIS function's own full-page background
     // (see their own comments) — Confirmation/Appointment Letter supply their letterhead via a
     // real Word Header instead (rendered by Drive directly into the page, not through
@@ -88,12 +84,13 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
     }
     // Whatever the renderer (Drive or the local mammoth+Puppeteer fallback) did with each
     // decoration's own floating picture — dropped it at the wrong spot, re-rasterized it fuzzy,
-    // or both — gets removed here so only the freshly-drawn, correctly-positioned copy below is
-    // ever visible; leaving the original in place would show both.
-    decorations.forEach(({ widthPx, heightPx }, i) => {
-      foundOnPage[pageIndex][i] = widthPx && heightPx ? neutralizeImagesByPixelSize(srcDoc, page, widthPx, heightPx) : false;
-    });
-  });
+    // or both, or simply never rendered it on this page at all — gets removed here (a no-op where
+    // there was nothing to remove) so only the freshly-drawn, correctly-positioned copy below is
+    // ever visible on every page.
+    for (const { widthPx, heightPx } of decorations) {
+      if (widthPx && heightPx) neutralizeImagesByPixelSize(srcDoc, page, widthPx, heightPx);
+    }
+  }
 
   const backgroundImage = backgroundImages.length
     ? await embedImage(outDoc, backgroundImages[0].dataUri)
@@ -125,10 +122,6 @@ export async function overlayLetterheadOnEveryPage(pdfBytes, backgroundImages, {
       addLinkAnnotation(outDoc, page, badgeRectForPage(width, height), BADGE_LINK_URL);
     }
     decorations.forEach((decoration, i) => {
-      // everyPage:true (an exact, page-relative position — see extractPageAnchoredDecorations)
-      // draws unconditionally; everyPage:false only draws where the original actually had a copy
-      // of it, so a page that never had the badge pasted on it doesn't gain one.
-      if (!decoration.everyPage && !foundOnPage[pageIndex][i]) return;
       const rect = { x: decoration.xPt, y: decoration.yPt, width: decoration.widthPt, height: decoration.heightPt };
       page.drawImage(decorationImages[i], rect);
       if (decoration.linkUrl) {
@@ -182,11 +175,10 @@ function neutralizeLargeImages(pdfDoc, page, thresholdPx) {
 function neutralizeImagesByPixelSize(pdfDoc, page, widthPx, heightPx) {
   const resources = page.node.Resources();
   const xobjRef = resources?.get(PDFName.of("XObject"));
-  if (!xobjRef) return false;
+  if (!xobjRef) return;
   const xobjDict = pdfDoc.context.lookup(xobjRef);
-  if (!(xobjDict instanceof PDFDict)) return false;
+  if (!(xobjDict instanceof PDFDict)) return;
 
-  let found = false;
   for (const key of xobjDict.keys()) {
     const obj = pdfDoc.context.lookup(xobjDict.get(key));
     if (!obj?.dict) continue;
@@ -197,10 +189,8 @@ function neutralizeImagesByPixelSize(pdfDoc, page, widthPx, heightPx) {
     const h = height instanceof PDFNumber ? height.asNumber() : 0;
     if (w === widthPx && h === heightPx) {
       xobjDict.set(key, getTransparentPlaceholder(pdfDoc));
-      found = true;
     }
   }
-  return found;
 }
 
 // Drive's PDF export consistently opens each page's content stream with a preamble that sets the

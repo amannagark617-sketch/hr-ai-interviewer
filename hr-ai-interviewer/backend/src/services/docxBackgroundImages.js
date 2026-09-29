@@ -84,12 +84,15 @@ const FOOTER_BADGE_TOP_OFFSET_EMU = 9162719;
 // rather than trusting either renderer to reproduce it.
 //
 // Two different anchoring styles show up across the two templates, needing two different
-// confidence levels:
+// confidence levels to compute WHERE the badge belongs — but either way, the overlay always draws
+// it on every generated page, same as the full-page letterhead: HR wants the badge consistently
+// present (Appointment Letter's own first page never had it in the original, pasted per-page by
+// hand, but should still get one) rather than a faithful reproduction of wherever it happened to
+// land originally.
 //
 // - Confirmation Letter's badge uses <wp:positionV relativeFrom="page"> — an absolute offset from
 //   the page's own top edge, independent of anything else on the page. This is real, exact
-//   position, recoverable straight from the XML; everyPage:true tells the overlay to draw it on
-//   every generated page unconditionally, same as the full-page letterhead.
+//   position, recoverable straight from the XML.
 //
 // - Appointment Letter instead pastes the very same picture once per page, each copy anchored
 //   relative to whatever paragraph happens to be nearby (<wp:positionV relativeFrom="paragraph">)
@@ -97,12 +100,9 @@ const FOOTER_BADGE_TOP_OFFSET_EMU = 9162719;
 //   position from, since where a paragraph-relative anchor actually lands depends on real
 //   pagination (line wrapping, page breaks), which isn't knowable without simulating Word's own
 //   layout engine. What multiple instances of the same picture DO reliably signal is "this is a
-//   recurring per-page decoration, not one-off body content" — so this case still gets a computed
-//   target position (the shared footer slot above, at this instance's own horizontal offset, which
-//   stays consistent across instances even though the vertical one doesn't), but everyPage:false:
-//   the overlay only draws it on pages where a native copy of the same picture is actually found
-//   (see neutralizeImagesByPixelSize in letterheadOverlay.js), so a page that never had the badge
-//   pasted on it in the original doesn't gain one.
+//   recurring per-page decoration, not one-off body content" — so this case reuses the shared
+//   footer slot above for its vertical position, at this instance's own horizontal offset (which
+//   stays consistent across instances even though the vertical one doesn't).
 export function extractPageAnchoredDecorations(docxBuffer) {
   const zip = new PizZip(docxBuffer);
   const documentXml = zip.file("word/document.xml")?.asText() || "";
@@ -191,7 +191,6 @@ export function extractPageAnchoredDecorations(docxBuffer) {
       widthPt: representative.widthPt,
       heightPt: representative.heightPt,
       linkUrl: representative.linkUrl,
-      everyPage: Boolean(exact),
     });
   }
   return decorations;

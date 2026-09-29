@@ -1,6 +1,6 @@
 import mammoth from "mammoth";
 import puppeteer from "puppeteer";
-import { extractBackgroundImages } from "./docxBackgroundImages.js";
+import { extractBackgroundImages, extractPageAnchoredDecorations } from "./docxBackgroundImages.js";
 import { convertDocxToPdfViaDrive } from "./sheetsService.js";
 import { overlayLetterheadOnEveryPage } from "./letterheadOverlay.js";
 
@@ -31,6 +31,7 @@ import { overlayLetterheadOnEveryPage } from "./letterheadOverlay.js";
 // already fixed and unambiguous, regardless of which renderer produced the rest of the page.
 export async function docxToPdf(docxBuffer, { templateId } = {}) {
   const backgroundImages = extractBackgroundImages(docxBuffer);
+  const decorations = extractPageAnchoredDecorations(docxBuffer);
 
   let pdf;
   try {
@@ -48,6 +49,7 @@ export async function docxToPdf(docxBuffer, { templateId } = {}) {
   // exactly as-is. See overlayLetterheadOnEveryPage's own cropLogoOnContinuationPages doc for how.
   const finalPdf = await overlayLetterheadOnEveryPage(pdf, backgroundImages, {
     cropLogoOnContinuationPages: templateId === "increment-letter",
+    decorations,
   });
   return { pdf: finalPdf };
 }

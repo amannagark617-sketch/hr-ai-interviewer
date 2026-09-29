@@ -86,6 +86,25 @@ export const api = {
   // browser handles the actual file download itself.
   documentDownloadUrl: (id, ext) => `${BASE}/documents/${id}/download.${ext}`,
 
+  // The AI Assistant tab — HR's chatbot logs, from two separately published-CSV tabs of the same
+  // Google Sheet (see backend/src/routes/aiAssistant.js for why they need separate URLs).
+  getHrTicketsCsv: async () => {
+    const res = await fetch(`${BASE}/ai-assistant/tickets-csv`, { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.text();
+  },
+  getChatHistoryCsv: async () => {
+    const res = await fetch(`${BASE}/ai-assistant/chat-history-csv`, { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.text();
+  },
+
   // The Home page's banner image — a single shared image, not per-user, stored server-side (see
   // backend/src/routes/branding.js) so everyone who opens the app sees the same one.
   getBranding: () => request("/branding"),

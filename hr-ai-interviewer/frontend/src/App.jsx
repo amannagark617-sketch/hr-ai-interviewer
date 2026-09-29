@@ -6,6 +6,7 @@ import Results from "./pages/Results.jsx";
 import Calls from "./pages/Calls.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Documents from "./pages/Documents.jsx";
+import AiAssistant from "./pages/AiAssistant.jsx";
 
 const iconBtnStyle = {
   display: "flex",
@@ -34,7 +35,7 @@ const tabStyle = (active) => ({
 });
 
 export default function App() {
-  const [step, setStep] = useState("home"); // "home" | "setup" | "results" | "calls" | "dashboard" | "documents"
+  const [step, setStep] = useState("home"); // "home" | "setup" | "results" | "calls" | "dashboard" | "documents" | "ai-assistant"
   const [logoOk, setLogoOk] = useState(true);
   const [jd, setJd] = useState("");
   const [candidates, setCandidates] = useState([]);
@@ -131,6 +132,7 @@ export default function App() {
           <button style={tabStyle(step === "calls")} onClick={() => setStep("calls")}>Calls</button>
           <button style={tabStyle(step === "dashboard")} onClick={() => setStep("dashboard")}>Dashboard</button>
           <button style={tabStyle(step === "documents")} onClick={() => setStep("documents")}>Documents</button>
+          <button style={tabStyle(step === "ai-assistant")} onClick={() => setStep("ai-assistant")}>AI Assistant</button>
         </div>
       </header>
 
@@ -150,6 +152,7 @@ export default function App() {
       {step === "calls" && <Calls />}
       {step === "dashboard" && <Dashboard />}
       {step === "documents" && <Documents />}
+      {step === "ai-assistant" && <AiAssistant />}
     </div>
   );
 }

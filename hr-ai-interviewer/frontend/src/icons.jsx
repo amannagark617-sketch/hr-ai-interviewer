@@ -123,3 +123,24 @@ export const IconPencil = (props) => (
     <path d="M13 6l5 5" />
   </svg>
 );
+
+export const IconSearch = (props) => (
+  <svg {...base} {...props}>
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="M20 20l-4.8-4.8" />
+  </svg>
+);
+
+export const IconChat = (props) => (
+  <svg {...base} {...props}>
+    <path d="M4 5.5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-4.5 4v-4H6a2 2 0 0 1-2-2Z" />
+    <path d="M8 9.5h8M8 13h5" />
+  </svg>
+);
+
+export const IconTicket = (props) => (
+  <svg {...base} {...props}>
+    <path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1.5a1.75 1.75 0 0 0 0 3.5V16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a1.75 1.75 0 0 0 0-3.5Z" />
+    <path d="M14 7.5v9" strokeDasharray="2.4 2.4" />
+  </svg>
+);

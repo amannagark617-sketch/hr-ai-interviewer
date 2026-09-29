@@ -53,6 +53,15 @@ export const config = {
   // export doesn't reliably send CORS headers permitting a cross-origin fetch from the app's own
   // domain, so a direct browser fetch can fail even though the URL itself works fine.
   sheetCsvUrl: process.env.SHEET_CSV_URL || "",
+
+  // The AI Assistant tab (see routes/aiAssistant.js) reads two separately published-CSV tabs from
+  // the HR chatbot's own logging Sheet — "Publish to web" only ever exports whichever ONE sheet
+  // is selected at publish time, so each tab needs its own URL rather than sharing sheetCsvUrl
+  // above. Same server-side-fetch reasoning as sheetCsvUrl.
+  aiAssistant: {
+    hrTicketsCsvUrl: process.env.HR_TICKETS_CSV_URL || "",
+    chatHistoryCsvUrl: process.env.CHAT_HISTORY_CSV_URL || "",
+  },
 };
 
 export function assertConfigured(keys) {

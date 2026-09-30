@@ -1,37 +1,30 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import { parseCsv, rowsToObjects } from "../csv.js";
+import { parseSheetDate, displayDate } from "../dates.js";
 import { IconChat, IconRefresh, IconSearch, IconTicket } from "../icons.jsx";
 
 // The chatbot logs a new row every turn, each carrying the WHOLE transcript so far (see the
 // column layout below) rather than one row per message — so the sheet is full of duplicates,
 // one growing copy per Session ID. The row with the latest "Date & Time" for a given session is
 // the only one worth keeping; every earlier row for that same session is a strict prefix of it.
-const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
-function parseSheetDateTime(value) {
-  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/.exec((value || "").trim());
-  if (!m) return null;
-  const month = MONTHS[m[2]];
-  if (month == null) return null;
-  return new Date(Number(m[3]), month, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6])).getTime();
-}
-
 // Collapses the raw rows down to one (the latest) per Session ID. Ties or an unparseable date
 // fall back to "last one in sheet order wins" — rows are appended in chronological order by the
 // chatbot itself, so that's equivalent to the real latest turn anyway.
 function latestPerSession(rows) {
   const bySession = new Map();
+  let order = 0;
   for (const row of rows) {
     const id = row["Session ID"];
     if (!id) continue;
-    const ts = parseSheetDateTime(row["Date & Time"]);
+    const ts = parseSheetDate(row["Date & Time"]);
     const existing = bySession.get(id);
     if (!existing || ts == null || ts >= existing.ts) {
-      bySession.set(id, { ts: ts ?? existing?.ts ?? 0, row });
+      bySession.set(id, { ts: ts ?? existing?.ts ?? 0, row, order: order++ });
     }
   }
   return Array.from(bySession.values())
-    .sort((a, b) => b.ts - a.ts)
+    .sort((a, b) => b.ts - a.ts || b.order - a.order)
     .map(({ row, ts }) => ({ ...row, __ts: ts }));
 }
 
@@ -252,6 +245,21 @@ function NotConfiguredBanner({ tabName, envVar }) {
   );
 }
 
+function SortToggle({ newestFirst, onToggle, neutral }) {
+  return (
+    <button onClick={onToggle} title="Change the sort order" style={{ ...refreshButtonStyle, marginLeft: 0 }}>
+      {neutral ? (
+        "Sort by date"
+      ) : (
+        <>
+          <span aria-hidden="true">{newestFirst ? "↓" : "↑"}</span>
+          {newestFirst ? "Newest first" : "Oldest first"}
+        </>
+      )}
+    </button>
+  );
+}
+
 function SearchBox({ value, onChange, placeholder }) {
   return (
     <div style={{ position: "relative", flex: 1, minWidth: 200, maxWidth: 340 }}>
@@ -279,8 +287,12 @@ function SearchBox({ value, onChange, placeholder }) {
 function ChatHistoryPanel({ rows, error, notConfigured, loading, onRefresh }) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
+  const [newestFirst, setNewestFirst] = useState(true);
 
-  const sessions = useMemo(() => (rows ? latestPerSession(rows) : []), [rows]);
+  const sessions = useMemo(() => {
+    const latest = rows ? latestPerSession(rows) : [];
+    return newestFirst ? latest : [...latest].reverse();
+  }, [rows, newestFirst]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sessions;
@@ -306,6 +318,7 @@ function ChatHistoryPanel({ rows, error, notConfigured, loading, onRefresh }) {
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
         <SearchBox value={query} onChange={setQuery} placeholder="Search conversations..." />
         <span style={{ fontSize: 13, color: "var(--faint)" }}>{sessions.length} conversation{sessions.length === 1 ? "" : "s"}</span>
+        <SortToggle newestFirst={newestFirst} onToggle={() => setNewestFirst((v) => !v)} />
         <button onClick={onRefresh} disabled={loading} style={refreshButtonStyle}>
           <IconRefresh className={loading ? "spin" : undefined} width={14} height={14} />
           {loading ? "Refreshing..." : "Refresh"}
@@ -336,7 +349,7 @@ function ChatHistoryPanel({ rows, error, notConfigured, loading, onRefresh }) {
                   {sessionTitle(s)}
                 </div>
                 <div style={{ fontSize: 11.5, color: "var(--faint)", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <span>{s["Date & Time"] || "—"}</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums" }}>{displayDate(s["Date & Time"])}</span>
                   {s["Duration"] && <span>· {s["Duration"]}</span>}
                   {s["Chat Mode"] && <span>· {s["Chat Mode"]}</span>}
                 </div>
@@ -350,7 +363,7 @@ function ChatHistoryPanel({ rows, error, notConfigured, loading, onRefresh }) {
           {selected && (
             <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: 4 }}>
-                Session <code>{selected["Session ID"]}</code> · {selected["Date & Time"]}
+                Session <code>{selected["Session ID"]}</code> · {displayDate(selected["Date & Time"])}
               </div>
               {selectedMessages.map((m, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: m.role === "USER" ? "flex-end" : "flex-start" }}>
@@ -420,19 +433,51 @@ function statusColorsFor(value) {
   return { color: "var(--muted)", bg: "var(--surface-raised)" };
 }
 
+// The columns the sheet's own header calls a date/time (Date & Time, Created At, ...) sort and
+// display as real timestamps instead of as text, so "10/2/2026" doesn't sort before "9/29/2026".
+const isDateColumn = (name) => /date|timestamp|created/i.test(name);
+
 function TicketsPanel({ rows, error, notConfigured, loading, onRefresh }) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(null);
+  const [sort, setSort] = useState(null); // { col, dir } — null means "newest first by date"
 
   const columns = rows && rows.length > 0 ? Object.keys(rows[0]) : [];
   const statusColumn = columns.find((c) => /status|priority/i.test(c));
+  const dateColumn = columns.find(
+    (c) => isDateColumn(c) && rows.some((r) => parseSheetDate(r[c]) != null)
+  );
+  const idColumn = columns.find((c) => /ticket.*id|^id$/i.test(c));
+  const activeSort = sort || (dateColumn ? { col: dateColumn, dir: "desc" } : { col: null, dir: "desc" });
 
   const filtered = useMemo(() => {
     if (!rows) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => Object.values(r).some((v) => (v || "").toLowerCase().includes(q)));
-  }, [rows, query]);
+    const indexed = rows.map((r, i) => ({ r, i }));
+    const matching = q
+      ? indexed.filter(({ r }) => Object.values(r).some((v) => (v || "").toLowerCase().includes(q)))
+      : indexed;
+
+    const { col, dir } = activeSort;
+    const sign = dir === "asc" ? 1 : -1;
+    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+    return [...matching].sort((a, b) => {
+      let cmp = 0;
+      if (col) {
+        if (isDateColumn(col)) {
+          const ta = parseSheetDate(a.r[col]);
+          const tb = parseSheetDate(b.r[col]);
+          cmp = (ta ?? -Infinity) - (tb ?? -Infinity);
+          if (Number.isNaN(cmp)) cmp = 0;
+        } else {
+          cmp = collator.compare(a.r[col] || "", b.r[col] || "");
+        }
+      }
+      // Rows are appended chronologically, so the sheet position breaks ties (and is the whole
+      // order when there's no date column).
+      return cmp !== 0 ? cmp * sign : (a.i - b.i) * sign;
+    });
+  }, [rows, query, activeSort.col, activeSort.dir]);
 
   if (notConfigured) return <NotConfiguredBanner tabName="HR_Tickets" envVar="HR_TICKETS_CSV_URL" />;
   if (error) {
@@ -444,39 +489,59 @@ function TicketsPanel({ rows, error, notConfigured, loading, onRefresh }) {
   // detail row — a real ticket sheet can easily have a dozen+ columns, more than fit as a table.
   const previewColumns = columns.slice(0, 5);
 
+  const clickHeader = (c) => {
+    setExpanded(null);
+    setSort(activeSort.col === c ? { col: c, dir: activeSort.dir === "asc" ? "desc" : "asc" } : { col: c, dir: isDateColumn(c) ? "desc" : "asc" });
+  };
+  const cellText = (c, value) => (isDateColumn(c) ? displayDate(value) : value || "—");
+
   return (
     <div>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
         <SearchBox value={query} onChange={setQuery} placeholder="Search tickets..." />
         <span style={{ fontSize: 13, color: "var(--faint)" }}>{filtered.length} of {rows.length} ticket{rows.length === 1 ? "" : "s"}</span>
-        <button onClick={onRefresh} disabled={loading} style={refreshButtonStyle}>
+        {dateColumn && (
+          <SortToggle
+            neutral={activeSort.col !== dateColumn}
+            newestFirst={activeSort.dir === "desc"}
+            onToggle={() => {
+              setExpanded(null);
+              const onDate = activeSort.col === dateColumn;
+              setSort({ col: dateColumn, dir: onDate && activeSort.dir === "desc" ? "asc" : "desc" });
+            }}
+          />
+        )}
+        <button onClick={onRefresh} disabled={loading} style={{ ...refreshButtonStyle, marginLeft: dateColumn ? 0 : "auto" }}>
           <IconRefresh className={loading ? "spin" : undefined} width={14} height={14} />
           {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>
 
-      <div style={{ overflowX: "auto", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      <div style={{ overflow: "auto", maxHeight: 640, border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--surface)" }}>
+        <table className="data-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              {previewColumns.map((c) => (
-                <th key={c} style={{ textAlign: "left", padding: "10px 12px", color: "var(--faint)", fontWeight: 500, whiteSpace: "nowrap" }}>
-                  {c}
-                </th>
-              ))}
+            <tr>
+              {previewColumns.map((c) => {
+                const active = activeSort.col === c;
+                return (
+                  <th key={c} aria-sort={active ? (activeSort.dir === "asc" ? "ascending" : "descending") : "none"}>
+                    <button onClick={() => clickHeader(c)} className={active ? "active" : undefined} title={`Sort by ${c}`}>
+                      {c}
+                      <span aria-hidden="true" className="sort-arrow">{active ? (activeSort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
+                    </button>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((r, i) => {
+            {filtered.map(({ r, i }) => {
               const isOpen = expanded === i;
               return (
                 <React.Fragment key={i}>
-                  <tr
-                    onClick={() => setExpanded(isOpen ? null : i)}
-                    style={{ borderBottom: isOpen ? "none" : "1px solid var(--border-soft)", cursor: "pointer", background: isOpen ? "var(--surface-raised)" : "transparent" }}
-                  >
+                  <tr onClick={() => setExpanded(isOpen ? null : i)} className={isOpen ? "open" : undefined}>
                     {previewColumns.map((c) => (
-                      <td key={c} style={{ padding: "10px 12px", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <td key={c} style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontVariantNumeric: isDateColumn(c) ? "tabular-nums" : undefined }}>
                         {c === statusColumn && r[c] ? (
                           <span
                             style={{
@@ -490,20 +555,24 @@ function TicketsPanel({ rows, error, notConfigured, loading, onRefresh }) {
                           >
                             {r[c]}
                           </span>
+                        ) : c === idColumn ? (
+                          <span style={{ fontWeight: 600, color: "var(--accent)" }}>{r[c] || "—"}</span>
+                        ) : /department|team/i.test(c) && r[c] ? (
+                          <span className="chip">{r[c]}</span>
                         ) : (
-                          r[c]
+                          cellText(c, r[c])
                         )}
                       </td>
                     ))}
                   </tr>
                   {isOpen && (
-                    <tr style={{ borderBottom: "1px solid var(--border-soft)", background: "var(--surface-raised)" }}>
+                    <tr className="detail-row">
                       <td colSpan={previewColumns.length} style={{ padding: "4px 16px 20px" }}>
                         <div className="fade-in" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "10px 24px" }}>
                           {columns.map((c) => (
                             <div key={c}>
                               <div style={{ fontSize: 11.5, fontWeight: 500, color: "var(--muted)", marginBottom: 2 }}>{c}</div>
-                              <div style={{ fontSize: 13, lineHeight: 1.5 }}>{r[c] || "—"}</div>
+                              <div style={{ fontSize: 13, lineHeight: 1.5 }}>{cellText(c, r[c])}</div>
                             </div>
                           ))}
                         </div>
@@ -516,7 +585,7 @@ function TicketsPanel({ rows, error, notConfigured, loading, onRefresh }) {
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={previewColumns.length || 1} style={{ padding: "24px 12px", textAlign: "center", color: "var(--faint)" }}>
-                  No tickets logged yet.
+                  {rows.length === 0 ? "No tickets logged yet." : "No tickets match your search."}
                 </td>
               </tr>
             )}

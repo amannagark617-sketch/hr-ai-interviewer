@@ -1,5 +1,6 @@
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
+import { ocrDocumentText } from "./geminiService.js";
 
 // Extracts plain text from an uploaded resume file buffer.
 // Supported: .pdf, .docx, .txt/.md
@@ -7,8 +8,20 @@ export async function extractResumeText(buffer, filename) {
   const lower = filename.toLowerCase();
 
   if (lower.endsWith(".pdf")) {
-    const result = await pdfParse(buffer);
-    return result.text.trim();
+    // pdf-parse only reads a PDF's embedded text layer — a resume that was scanned or photographed
+    // and saved as a PDF has no such layer, so this comes back empty even though the page clearly
+    // has text on it. Phone-scanning apps in particular also often produce PDFs with a structure
+    // pdf-parse's stricter parser chokes on outright (a thrown error, not just empty text), even
+    // though the file opens fine in a normal PDF viewer. Either way, fall back to OCRing it via
+    // Gemini instead of failing the upload outright — see ocrDocumentText's own comment for why
+    // this works and what it returns when there really is nothing readable.
+    let text = "";
+    try {
+      text = (await pdfParse(buffer)).text.trim();
+    } catch {
+      // fall through to OCR below
+    }
+    return text || (await ocrDocumentText(buffer, "application/pdf"));
   }
 
   if (lower.endsWith(".docx")) {

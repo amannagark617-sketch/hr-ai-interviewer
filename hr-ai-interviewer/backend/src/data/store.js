@@ -9,6 +9,12 @@ import { deriveRoleTitleFromJobDescription } from "../services/roleTitle.js";
 const roles = new Map(); // id -> { id, title, jobDescription, customQuestions, createdAt }
 const candidates = new Map(); // id -> candidate (each carries roleId — which role it was added under)
 const calls = new Map(); // callId -> call job
+const documents = new Map(); // id -> generated HR letter { id, templateId, templateName, values, createdAt, updatedAt, driveDocxUrl, driveFileUrl }
+
+// The Home page's banner image, kept as a data URI (small enough — see the 8MB cap in
+// routes/branding.js — that base64-in-memory is simpler than standing up real file storage for
+// one image). Resets on restart same as everything else here; re-uploading takes ten seconds.
+let bannerImage = null;
 
 // Sentinel for "this role has never had a title set" — see setJobDescription below, which is what
 // actually names a role (auto-derived from the job description itself, never typed by hand).
@@ -162,5 +168,35 @@ export const store = {
   },
   listCalls() {
     return Array.from(calls.values());
+  },
+
+  createDocument(document) {
+    documents.set(document.id, document);
+    return document;
+  },
+  getDocument(id) {
+    return documents.get(id);
+  },
+  updateDocument(id, patch) {
+    const existing = documents.get(id);
+    if (!existing) return null;
+    const updated = { ...existing, ...patch };
+    documents.set(id, updated);
+    return updated;
+  },
+  // Most-recent-first — HR wants to find the letter they just generated at the top, not scroll
+  // for it.
+  listDocuments() {
+    return Array.from(documents.values()).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  },
+  removeDocument(id) {
+    documents.delete(id);
+  },
+
+  getBannerImage() {
+    return bannerImage;
+  },
+  setBannerImage(dataUri) {
+    bannerImage = dataUri;
   },
 };

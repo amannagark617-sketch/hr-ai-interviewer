@@ -468,6 +468,7 @@ function FieldInput({ field, values, setField, onFieldBlur, forceMoney, style })
         onChange={(e) => setField(field.key, e.target.value.replace(/\D/g, ""))}
         onBlur={() => onFieldBlur(field, forceMoney)}
         maxLength={field.maxLength}
+        placeholder={field.defaultValue || undefined}
         style={style}
       />
     );

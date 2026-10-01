@@ -148,6 +148,20 @@ const FIELD_CHAR_LIMITS = {
   },
 };
 
+// A salary-table cell that is usually "nothing" — a component the offer doesn't include prints as
+// "0" (or "–" for the ESIC rows, which don't apply above the ESIC wage ceiling). They used to be
+// typed straight into the .docx, which meant HR couldn't ever put a real figure there; they're
+// real [placeholders] now, and this is what an untouched (blank) one still prints, so a letter
+// that doesn't use them looks exactly as before. Keyed templateId -> field key -> default text.
+const ZERO_ROWS = ["Conveyance", "Special Allowances", "Medical Allowance", "Bonus", "Employee LWF", "Company LWF"];
+const DASH_ROWS = ["Employee ESIC", "Company ESIC"];
+const FIELD_DEFAULTS = {
+  "offer-letter": Object.fromEntries([
+    ...ZERO_ROWS.flatMap((r) => [[`${r} - Monthly`, "0"], [`${r} - Annual`, "0"]]),
+    ...DASH_ROWS.flatMap((r) => [[`${r} - Monthly`, "–"], [`${r} - Annual`, "–"]]),
+  ]),
+};
+
 const MONTH_ABBRS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 // Some bracket placeholders shouldn't be HR-fillable form fields at all — the Internship Joining
@@ -197,6 +211,7 @@ export function getTemplateFields(templateId) {
       label: displayLabel(key),
       maxLength: FIELD_CHAR_LIMITS[meta.id]?.[key] ?? DEFAULT_MAX_LENGTH,
       isImage: isImageTag || IMAGE_FIELDS[meta.id]?.has(key) || false,
+      defaultValue: FIELD_DEFAULTS[meta.id]?.[key] ?? "",
     });
   }
   return { id: meta.id, name: meta.name, fields };
@@ -238,8 +253,9 @@ export function renderTemplateDocx(templateId, values) {
   const { meta, doc } = openTemplate(templateId);
   const fields = getTemplateFields(templateId).fields;
   const data = {};
-  for (const { key, maxLength, isImage } of fields) {
-    const value = values?.[key] ?? "";
+  for (const { key, maxLength, isImage, defaultValue } of fields) {
+    const raw = values?.[key] ?? "";
+    const value = raw.trim() === "" && defaultValue ? defaultValue : raw;
     if (isImage) {
       // Must stay a non-empty string — an empty/falsy tag value makes the image module fall back
       // to leaving the literal "[%Signature]" tag text in the document instead of rendering

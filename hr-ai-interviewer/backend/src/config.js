@@ -28,6 +28,13 @@ export const config = {
     // turns out worse in practice, revert with one env var — GEMINI_LIVE_MODEL=models/gemini-3.1-flash-live-preview
     // — no code change needed.
     liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-2.5-flash-native-audio-preview-12-2025",
+    // Tried in order, only when the model above is rejected before the call's setup completes
+    // (a preview model that Google has since retired is the usual cause — the candidate just hears
+    // silence otherwise). Comma-separated; an unknown name just fails fast and the next one is tried.
+    liveFallbackModels: (process.env.GEMINI_LIVE_FALLBACK_MODELS || "models/gemini-3.1-flash-live-preview,models/gemini-2.5-flash-native-audio-latest")
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean),
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
     // BCP-47 language code for the Live API's spoken output — this is what actually controls

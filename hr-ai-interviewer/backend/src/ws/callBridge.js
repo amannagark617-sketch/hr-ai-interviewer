@@ -21,8 +21,9 @@ import { savePendingCallback } from "../services/sheetsService.js";
 // https://www.plivo.com/docs/voice/xml/audio-streaming.
 // ---------------------------------------------------------------------------
 
+const GEMINI_LIVE_BASE = process.env.GEMINI_LIVE_BASE_URL || "wss://generativelanguage.googleapis.com";
 const GEMINI_LIVE_URL =
-  `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.gemini.apiKey}`;
+  `${GEMINI_LIVE_BASE}/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${config.gemini.apiKey}`;
 
 // The <Stream> tag below declares one shared contentType (16kHz) for this connection, but
 // Gemini Live's audio output is fixed at 24kHz — it's not something we can request at a
@@ -228,15 +229,15 @@ ${hasCustomQuestions
 }`;
 }
 
-function openGeminiLiveSession(jobDescription, candidate, callId, customQuestions) {
+function openGeminiLiveSession(jobDescription, candidate, callId, customQuestions, model) {
   const ws = new WebSocket(GEMINI_LIVE_URL);
 
   ws.on("open", () => {
-    console.log(`[callBridge] Gemini Live socket open for call ${callId}, sending setup (model=${config.gemini.liveModel})`);
+    console.log(`[callBridge] Gemini Live socket open for call ${callId}, sending setup (model=${model})`);
     ws.send(
       JSON.stringify({
         setup: {
-          model: config.gemini.liveModel,
+          model,
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
@@ -366,7 +367,6 @@ export function attachCallBridge(httpServer) {
     const role = store.getRole(candidate?.roleId);
     const jobDescription = role?.jobDescription || "";
     const customQuestions = role?.customQuestions || "";
-    const geminiSocket = openGeminiLiveSession(jobDescription, candidate, callId, customQuestions);
     let transcript = "";
     // Set from Plivo's own "start" frame below — required to send clearAudio (see the
     // "interrupted" handling further down), which is Plivo's real, documented mechanism for
@@ -383,229 +383,262 @@ export function attachCallBridge(httpServer) {
     let unrecognizedServerContentLogged = 0;
     let transcriptionChunkCount = 0;
     const bridgeStartedAt = Date.now();
-    geminiSocket.on("message", (raw) => {
-      let msg;
-      try {
-        msg = JSON.parse(raw.toString());
-      } catch (err) {
-        console.error(`[callBridge] Non-JSON message from Gemini for call ${callId}:`, err.message);
-        return;
-      }
+    const geminiModels = [...new Set([config.gemini.liveModel, ...config.gemini.liveFallbackModels])];
+    let modelIndex = 0;
+    let geminiSocket = null;
 
-      try {
-        // Gemini Live reports a rejected setup (bad model name, invalid key, quota, etc.) as a
-        // normal JSON message with an "error" field, not a socket-level error — miss this and
-        // the call just goes dead silent with zero indication why.
-        if (msg?.error) {
-          console.error(`[callBridge] Gemini Live setup/session error for call ${callId}:`, JSON.stringify(msg.error));
+    // Opens a Gemini Live session on geminiModels[modelIndex]. If that model is rejected (or the
+    // socket closes) before setup completes, the agent never comes on the line and the candidate
+    // just hears silence — so rather than dying there, move on to the next model in the list.
+    const startGemini = () => {
+      const model = geminiModels[modelIndex];
+      const sock = openGeminiLiveSession(jobDescription, candidate, callId, customQuestions, model);
+      geminiSocket = sock;
+      setupComplete = false;
+      let attemptFailed = false;
+      const failOver = (why) => {
+        if (attemptFailed || setupComplete || sock !== geminiSocket) return;
+        attemptFailed = true;
+        console.error(`[callBridge] Gemini Live model ${model} failed before setup for call ${callId}: ${why}`);
+        if (modelIndex + 1 < geminiModels.length && plivoSocket.readyState === WebSocket.OPEN) {
+          modelIndex++;
+          console.log(`[callBridge] Call ${callId}: falling back to Gemini Live model ${geminiModels[modelIndex]}`);
+          try { sock.close(); } catch {}
+          startGemini();
+        } else {
+          console.error(`[callBridge] Call ${callId}: no Gemini Live models left to try — the candidate will hear silence.`);
+        }
+      };
+
+      sock.on("message", (raw) => {
+        if (sock !== geminiSocket) return; // a superseded attempt
+        let msg;
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch (err) {
+          console.error(`[callBridge] Non-JSON message from Gemini for call ${callId}:`, err.message);
           return;
         }
 
-        if (msg?.setupComplete && !setupComplete) {
-          setupComplete = true;
-          console.log(`[callBridge] Gemini Live setup complete for call ${callId} — agent is live`);
-          // Gemini only generates audio in response to input it receives — with nothing ever
-          // sent, it just sits in silence waiting for the candidate to speak first, which on a
-          // real call meant ~20s of dead air with the candidate saying "hello?" into nothing.
-          // This synthetic turn is what actually gets the agent to open the conversation.
-          geminiSocket.send(
-            JSON.stringify({
-              clientContent: {
-                turns: [{ role: "user", parts: [{ text: "(The call has just connected. Begin the conversation now.)" }] }],
-                turnComplete: true,
-              },
-            })
-          );
-        }
-
-        const functionCalls = msg?.toolCall?.functionCalls;
-
-        // The candidate can't talk now and gave (or was given) a callback time — save it on the
-        // candidate record so the callback scheduler (see services/callbackScheduler.js) picks it
-        // up and automatically re-places this call later, instead of it falling through the
-        // cracks. Doesn't `return` — a request_callback call is always immediately followed by
-        // end_call, which may arrive in the same toolCall message.
-        const callbackCall = functionCalls?.find((fc) => fc.name === "request_callback");
-        if (callbackCall) {
-          const { preferredDateTime, note } = callbackCall.args || {};
-          console.log(
-            `[callBridge] Agent requested callback for call ${callId} at ${preferredDateTime}${note ? ` (${note})` : ""}`
-          );
-          if (candidate && preferredDateTime) {
-            store.updateCandidate(candidate.id, {
-              callbackScheduledFor: preferredDateTime,
-              callbackNote: note || "",
-              callbackStatus: "pending",
-            });
-            // Also park it in the Sheet (see sheetsService.js) so it survives a Cloud Run restart
-            // between now and when it's due — the in-memory update above alone does not. Fire and
-            // forget: this must never block or fail the live call over a logging-sheet hiccup, and
-            // the 60s scheduler tick / request-triggered check already covers the case where this
-            // same instance is still alive when the callback comes due.
-            savePendingCallback({
-              id: candidate.id,
-              candidateName: candidate.name,
-              phone: candidate.phone,
-              roleTitle: role?.title || "",
-              resumeText: candidate.resumeText,
-              jobDescription,
-              customQuestions,
-              scheduledFor: preferredDateTime,
-              note: note || "",
-            }).catch((err) =>
-              console.error(`[callBridge] Failed to persist pending callback for candidate ${candidate.id} to Sheets:`, err.message)
-            );
-          } else {
-            console.error(
-              `[callBridge] request_callback fired for call ${callId} but candidate or preferredDateTime missing — cannot schedule.`
-            );
+        try {
+          // Gemini Live reports a rejected setup (bad model name, invalid key, quota, etc.) as a
+          // normal JSON message with an "error" field, not a socket-level error — miss this and
+          // the call just goes dead silent with zero indication why.
+          if (msg?.error) {
+            console.error(`[callBridge] Gemini Live setup/session error for call ${callId}:`, JSON.stringify(msg.error));
+            failOver(JSON.stringify(msg.error));
+            return;
           }
-          // Gemini Live's function-calling protocol pauses generation until it gets a matching
-          // toolResponse — unlike end_call (which just ends the whole session right after),
-          // this call needs to keep going afterward (thank them, close, then end_call), so a
-          // missing response here would leave the agent silently stuck mid-call.
-          if (geminiSocket.readyState === WebSocket.OPEN) {
-            geminiSocket.send(
+
+          if (msg?.setupComplete && !setupComplete) {
+            setupComplete = true;
+            console.log(`[callBridge] Gemini Live setup complete for call ${callId} — agent is live`);
+            // Gemini only generates audio in response to input it receives — with nothing ever
+            // sent, it just sits in silence waiting for the candidate to speak first, which on a
+            // real call meant ~20s of dead air with the candidate saying "hello?" into nothing.
+            // This synthetic turn is what actually gets the agent to open the conversation.
+            sock.send(
               JSON.stringify({
-                toolResponse: {
-                  functionResponses: [{ id: callbackCall.id, name: "request_callback", response: { result: "ok" } }],
+                clientContent: {
+                  turns: [{ role: "user", parts: [{ text: "(The call has just connected. Begin the conversation now.)" }] }],
+                  turnComplete: true,
                 },
               })
             );
           }
-        }
 
-        // The model decided the interview is over and is hanging up (see the end_call tool
-        // declared in the setup message above). Actually end the call instead of leaving the
-        // phone connected after the agent has already said goodbye — this is also what lets
-        // /hangup ever fire so the post-call score/recommendation get computed and stored.
-        if (functionCalls?.some((fc) => fc.name === "end_call")) {
-          console.log(`[callBridge] Agent called end_call for call ${callId} — hanging up`);
-          if (call.plivoCallUuid) {
-            hangupCall(call.plivoCallUuid).catch((err) =>
-              console.error(`[callBridge] Failed to hang up call ${callId} via Plivo API:`, err.message)
-            );
-          } else {
-            console.error(`[callBridge] end_call fired for call ${callId} but no plivoCallUuid on record — cannot hang up.`);
-          }
-          return;
-        }
+          const functionCalls = msg?.toolCall?.functionCalls;
 
-        // Model was interrupted (candidate started talking over it) — Gemini stops generating on
-        // its own, but Plivo may still be playing out audio frames we already sent (sent with no
-        // pacing, so there can be a real backlog queued at Plivo by the time this fires). Plivo
-        // DOES support clearing that queue — a clearAudio event, keyed by the same streamId its
-        // own "start" frame handed us — which actually flushes whatever's left instead of letting
-        // it keep playing out to the end. Skipping this (as an earlier version of this file did,
-        // before that was confirmed) is exactly what produced the "AI keeps talking over me, then
-        // a big awkward delay" a real call reported: the leftover backlog plays out regardless of
-        // us no longer sending anything new, and only once THAT finishes does real silence (and
-        // eventually a real response) begin.
-        if (msg?.serverContent?.interrupted) {
-          if (plivoStreamId && plivoSocket.readyState === WebSocket.OPEN) {
-            plivoSocket.send(JSON.stringify({ event: "clearAudio", streamId: plivoStreamId }));
-          } else {
-            console.error(`[callBridge] Call ${callId} interrupted but no plivoStreamId yet — cannot clear buffered audio.`);
-          }
-          return;
-        }
-
-        // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
-        // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
-        // to PLIVO_PLAYBACK_RATE (see that constant's comment for why it's 8000, not 16000).
-        const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
-        if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
-          if (!loggedAudioFormat) {
-            loggedAudioFormat = true;
-            console.log(`[callBridge] First Gemini audio chunk for call ${callId}, raw mimeType: ${audioPart.inlineData.mimeType}`);
-          }
-          const rateMatch = audioPart.inlineData.mimeType.match(/rate=(\d+)/);
-          const sourceRate = rateMatch ? Number(rateMatch[1]) : 24000;
-          const inputSamples = Buffer.byteLength(audioPart.inlineData.data, "base64") / 2;
-          const durationMs = (inputSamples / sourceRate) * 1000;
-          const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_PLAYBACK_RATE);
-          const outputSamples = Buffer.byteLength(resampled, "base64") / 2;
-
-          // Sent immediately, no artificial pacing — an earlier pacing attempt was proven (via
-          // these same diagnostics) to build an unbounded backlog and was removed.
-          if (audioChunkIndex < 40) {
+          // The candidate can't talk now and gave (or was given) a callback time — save it on the
+          // candidate record so the callback scheduler (see services/callbackScheduler.js) picks it
+          // up and automatically re-places this call later, instead of it falling through the
+          // cracks. Doesn't `return` — a request_callback call is always immediately followed by
+          // end_call, which may arrive in the same toolCall message.
+          const callbackCall = functionCalls?.find((fc) => fc.name === "request_callback");
+          if (callbackCall) {
+            const { preferredDateTime, note } = callbackCall.args || {};
             console.log(
-              `[callBridge] audio chunk #${audioChunkIndex} call=${callId} t=${Date.now() - bridgeStartedAt}ms ` +
-                `inputBytes=${Buffer.byteLength(audioPart.inlineData.data, "base64")} inputSamples=${inputSamples} sourceRate=${sourceRate} ` +
-                `outputSamples=${outputSamples} durationMs=${durationMs.toFixed(1)}`
+              `[callBridge] Agent requested callback for call ${callId} at ${preferredDateTime}${note ? ` (${note})` : ""}`
+            );
+            if (candidate && preferredDateTime) {
+              store.updateCandidate(candidate.id, {
+                callbackScheduledFor: preferredDateTime,
+                callbackNote: note || "",
+                callbackStatus: "pending",
+              });
+              // Also park it in the Sheet (see sheetsService.js) so it survives a Cloud Run restart
+              // between now and when it's due — the in-memory update above alone does not. Fire and
+              // forget: this must never block or fail the live call over a logging-sheet hiccup, and
+              // the 60s scheduler tick / request-triggered check already covers the case where this
+              // same instance is still alive when the callback comes due.
+              savePendingCallback({
+                id: candidate.id,
+                candidateName: candidate.name,
+                phone: candidate.phone,
+                roleTitle: role?.title || "",
+                resumeText: candidate.resumeText,
+                jobDescription,
+                customQuestions,
+                scheduledFor: preferredDateTime,
+                note: note || "",
+              }).catch((err) =>
+                console.error(`[callBridge] Failed to persist pending callback for candidate ${candidate.id} to Sheets:`, err.message)
+              );
+            } else {
+              console.error(
+                `[callBridge] request_callback fired for call ${callId} but candidate or preferredDateTime missing — cannot schedule.`
+              );
+            }
+            // Gemini Live's function-calling protocol pauses generation until it gets a matching
+            // toolResponse — unlike end_call (which just ends the whole session right after),
+            // this call needs to keep going afterward (thank them, close, then end_call), so a
+            // missing response here would leave the agent silently stuck mid-call.
+            if (sock.readyState === WebSocket.OPEN) {
+              sock.send(
+                JSON.stringify({
+                  toolResponse: {
+                    functionResponses: [{ id: callbackCall.id, name: "request_callback", response: { result: "ok" } }],
+                  },
+                })
+              );
+            }
+          }
+
+          // The model decided the interview is over and is hanging up (see the end_call tool
+          // declared in the setup message above). Actually end the call instead of leaving the
+          // phone connected after the agent has already said goodbye — this is also what lets
+          // /hangup ever fire so the post-call score/recommendation get computed and stored.
+          if (functionCalls?.some((fc) => fc.name === "end_call")) {
+            console.log(`[callBridge] Agent called end_call for call ${callId} — hanging up`);
+            if (call.plivoCallUuid) {
+              hangupCall(call.plivoCallUuid).catch((err) =>
+                console.error(`[callBridge] Failed to hang up call ${callId} via Plivo API:`, err.message)
+              );
+            } else {
+              console.error(`[callBridge] end_call fired for call ${callId} but no plivoCallUuid on record — cannot hang up.`);
+            }
+            return;
+          }
+
+          // Model was interrupted (candidate started talking over it) — Gemini stops generating on
+          // its own, but Plivo may still be playing out audio frames we already sent (sent with no
+          // pacing, so there can be a real backlog queued at Plivo by the time this fires). Plivo
+          // DOES support clearing that queue — a clearAudio event, keyed by the same streamId its
+          // own "start" frame handed us — which actually flushes whatever's left instead of letting
+          // it keep playing out to the end. Skipping this (as an earlier version of this file did,
+          // before that was confirmed) is exactly what produced the "AI keeps talking over me, then
+          // a big awkward delay" a real call reported: the leftover backlog plays out regardless of
+          // us no longer sending anything new, and only once THAT finishes does real silence (and
+          // eventually a real response) begin.
+          if (msg?.serverContent?.interrupted) {
+            if (plivoStreamId && plivoSocket.readyState === WebSocket.OPEN) {
+              plivoSocket.send(JSON.stringify({ event: "clearAudio", streamId: plivoStreamId }));
+            } else {
+              console.error(`[callBridge] Call ${callId} interrupted but no plivoStreamId yet — cannot clear buffered audio.`);
+            }
+            return;
+          }
+
+          // Audio the model generated -> relay to Plivo as a media frame. Gemini's native audio output
+          // is 24kHz — read the real rate out of the mimeType instead of assuming, then resample down
+          // to PLIVO_PLAYBACK_RATE (see that constant's comment for why it's 8000, not 16000).
+          const audioPart = msg?.serverContent?.modelTurn?.parts?.find((p) => p.inlineData?.mimeType?.startsWith("audio/"));
+          if (audioPart && plivoSocket.readyState === WebSocket.OPEN) {
+            if (!loggedAudioFormat) {
+              loggedAudioFormat = true;
+              console.log(`[callBridge] First Gemini audio chunk for call ${callId}, raw mimeType: ${audioPart.inlineData.mimeType}`);
+            }
+            const rateMatch = audioPart.inlineData.mimeType.match(/rate=(\d+)/);
+            const sourceRate = rateMatch ? Number(rateMatch[1]) : 24000;
+            const inputSamples = Buffer.byteLength(audioPart.inlineData.data, "base64") / 2;
+            const durationMs = (inputSamples / sourceRate) * 1000;
+            const resampled = resamplePcm16(audioPart.inlineData.data, sourceRate, PLIVO_PLAYBACK_RATE);
+            const outputSamples = Buffer.byteLength(resampled, "base64") / 2;
+
+            // Sent immediately, no artificial pacing — an earlier pacing attempt was proven (via
+            // these same diagnostics) to build an unbounded backlog and was removed.
+            if (audioChunkIndex < 40) {
+              console.log(
+                `[callBridge] audio chunk #${audioChunkIndex} call=${callId} t=${Date.now() - bridgeStartedAt}ms ` +
+                  `inputBytes=${Buffer.byteLength(audioPart.inlineData.data, "base64")} inputSamples=${inputSamples} sourceRate=${sourceRate} ` +
+                  `outputSamples=${outputSamples} durationMs=${durationMs.toFixed(1)}`
+              );
+            }
+            audioChunkIndex++;
+
+            // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
+            // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
+            // contentType attribute, not here — and sampleRate is a string, not a number.
+            // streamId identifies which stream this audio belongs to — same field Plivo expects
+            // back on a clearAudio event (see the "interrupted" handling above), sent on every
+            // playAudio (not just clearAudio) since that's the documented shape for the event.
+            plivoSocket.send(
+              JSON.stringify({
+                event: "playAudio",
+                streamId: plivoStreamId,
+                media: {
+                  contentType: "audio/x-l16",
+                  sampleRate: String(PLIVO_PLAYBACK_RATE),
+                  payload: resampled,
+                },
+              })
             );
           }
-          audioChunkIndex++;
 
-          // Per Plivo's Audio Streaming docs, the playAudio media object's contentType is the
-          // bare codec ("audio/x-l16") — the ";rate=" suffix belongs on the <Stream> tag's own
-          // contentType attribute, not here — and sampleRate is a string, not a number.
-          // streamId identifies which stream this audio belongs to — same field Plivo expects
-          // back on a clearAudio event (see the "interrupted" handling above), sent on every
-          // playAudio (not just clearAudio) since that's the documented shape for the event.
-          plivoSocket.send(
-            JSON.stringify({
-              event: "playAudio",
-              streamId: plivoStreamId,
-              media: {
-                contentType: "audio/x-l16",
-                sampleRate: String(PLIVO_PLAYBACK_RATE),
-                payload: resampled,
-              },
-            })
+          // Transcription text, surfaced because inputAudioTranscription/outputAudioTranscription are
+          // enabled in the setup message above — accumulate for post-call scoring and the Sheets log.
+          const outputTranscription = msg?.serverContent?.outputTranscription?.text;
+          if (outputTranscription) transcript += `Agent: ${outputTranscription}\n`;
+
+          const inputTranscription = msg?.serverContent?.inputTranscription?.text;
+          if (inputTranscription) transcript += `Candidate: ${inputTranscription}\n`;
+
+          // A real call was reported as sounding completely normal (agent talked, candidate
+          // talked, both heard each other) but came out of /hangup with zero transcript — meaning
+          // outputTranscription/inputTranscription above never fired even though the actual audio
+          // plainly did. That can only mean either Gemini's transcription payload lands under a
+          // different shape than the two lines above expect, or it never showed up in
+          // msg.serverContent at all for some messages. Log the first several transcription chunks
+          // we DO capture (so a look at the logs confirms whether/when it's working at all), and
+          // separately flag any serverContent message that isn't audio, isn't "interrupted", and
+          // isn't a transcription chunk we recognized — dumping its raw shape is what would reveal
+          // a field/key mismatch here, rather than us continuing to guess at Gemini Live's exact
+          // protocol from documentation alone.
+          if (outputTranscription || inputTranscription) {
+            if (transcriptionChunkCount < 20) {
+              console.log(
+                `[callBridge] transcription chunk #${transcriptionChunkCount} call=${callId} ` +
+                  `output=${JSON.stringify(outputTranscription || null)} input=${JSON.stringify(inputTranscription || null)}`
+              );
+            }
+            transcriptionChunkCount++;
+          } else if (msg?.serverContent && !audioPart && !msg.serverContent.interrupted) {
+            if (unrecognizedServerContentLogged < 10) {
+              unrecognizedServerContentLogged++;
+              console.log(`[callBridge] Unrecognized serverContent shape for call ${callId} (no audio, no known transcription field): ${JSON.stringify(msg.serverContent).slice(0, 2000)}`);
+            }
+          }
+        } catch (err) {
+          console.error(`[callBridge] Error handling Gemini message for call ${callId}:`, err);
+        }
+      });
+
+      sock.on("error", (err) => {
+        console.error(`[callBridge] Gemini socket error for call ${callId}:`, err.message);
+      });
+
+      sock.on("close", (code, reason) => {
+        console.log(`[callBridge] Gemini socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"}`);
+        if (!setupComplete) {
+          console.error(
+            `[callBridge] Gemini Live socket closed for call ${callId} before setup completed — the agent never came on the line.`
           );
+          failOver(`socket closed (code ${code}) ${reason?.toString() || ""}`.trim());
         }
+      });
+    };
 
-        // Transcription text, surfaced because inputAudioTranscription/outputAudioTranscription are
-        // enabled in the setup message above — accumulate for post-call scoring and the Sheets log.
-        const outputTranscription = msg?.serverContent?.outputTranscription?.text;
-        if (outputTranscription) transcript += `Agent: ${outputTranscription}\n`;
-
-        const inputTranscription = msg?.serverContent?.inputTranscription?.text;
-        if (inputTranscription) transcript += `Candidate: ${inputTranscription}\n`;
-
-        // A real call was reported as sounding completely normal (agent talked, candidate
-        // talked, both heard each other) but came out of /hangup with zero transcript — meaning
-        // outputTranscription/inputTranscription above never fired even though the actual audio
-        // plainly did. That can only mean either Gemini's transcription payload lands under a
-        // different shape than the two lines above expect, or it never showed up in
-        // msg.serverContent at all for some messages. Log the first several transcription chunks
-        // we DO capture (so a look at the logs confirms whether/when it's working at all), and
-        // separately flag any serverContent message that isn't audio, isn't "interrupted", and
-        // isn't a transcription chunk we recognized — dumping its raw shape is what would reveal
-        // a field/key mismatch here, rather than us continuing to guess at Gemini Live's exact
-        // protocol from documentation alone.
-        if (outputTranscription || inputTranscription) {
-          if (transcriptionChunkCount < 20) {
-            console.log(
-              `[callBridge] transcription chunk #${transcriptionChunkCount} call=${callId} ` +
-                `output=${JSON.stringify(outputTranscription || null)} input=${JSON.stringify(inputTranscription || null)}`
-            );
-          }
-          transcriptionChunkCount++;
-        } else if (msg?.serverContent && !audioPart && !msg.serverContent.interrupted) {
-          if (unrecognizedServerContentLogged < 10) {
-            unrecognizedServerContentLogged++;
-            console.log(`[callBridge] Unrecognized serverContent shape for call ${callId} (no audio, no known transcription field): ${JSON.stringify(msg.serverContent).slice(0, 2000)}`);
-          }
-        }
-      } catch (err) {
-        console.error(`[callBridge] Error handling Gemini message for call ${callId}:`, err);
-      }
-    });
-
-    geminiSocket.on("error", (err) => {
-      console.error(`[callBridge] Gemini socket error for call ${callId}:`, err.message);
-    });
-
-    geminiSocket.on("close", (code, reason) => {
-      console.log(`[callBridge] Gemini socket closed for call ${callId}: code=${code} reason=${reason?.toString() || "(none)"}`);
-      if (!setupComplete) {
-        console.error(
-          `[callBridge] Gemini Live socket closed for call ${callId} before setup completed — the agent never came on the line.`
-        );
-      }
-    });
+    startGemini();
 
     plivoSocket.on("message", (raw) => {
       let frame;

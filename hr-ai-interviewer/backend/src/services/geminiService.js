@@ -31,6 +31,34 @@ async function generateWithRetry(model, prompt, attempts = 3) {
 }
 
 /**
+ * OCRs a document that has no extractable text layer — pdf-parse (see resumeParser.js) only
+ * reads text objects embedded in the PDF, so a resume that's actually a scanned page or a photo
+ * saved as a PDF comes back completely empty even though a person looking at it can read it just
+ * fine. Gemini's multimodal input understands PDF pages natively as images, so handing it the raw
+ * file bytes and asking for a verbatim transcription recovers the same text a sighted reader
+ * would get, instead of the upload failing outright with "couldn't find any text."
+ * Returns "" (never throws for "no text") if the document genuinely has nothing readable in it —
+ * a blank page, a corrupt file, etc. — so callers can fall back to their own "no text" handling.
+ */
+export async function ocrDocumentText(buffer, mimeType) {
+  const model = client.getGenerativeModel({ model: config.gemini.textModel });
+  const prompt = `This document produced no extractable text layer when parsed normally — it's
+almost certainly a scanned image or a photo saved as a PDF, not a text-based document. Read it
+like an image and transcribe every word of visible text, verbatim, in natural reading order (top
+to bottom, left to right). This is most likely a resume/CV or a job description — capture
+everything: contact details, work history, education, skills, dates, whatever is on the page.
+Don't summarize, paraphrase, or add any commentary of your own — output ONLY the transcribed text.
+If there is genuinely no readable text anywhere in the document, respond with exactly: NO_TEXT_FOUND`;
+
+  const result = await generateWithRetry(model, [
+    { inlineData: { mimeType, data: buffer.toString("base64") } },
+    { text: prompt },
+  ]);
+  const text = result.response.text().trim();
+  return text === "NO_TEXT_FOUND" ? "" : text;
+}
+
+/**
  * Expands a short role description (a title plus a few free-form notes) into a full,
  * structured job description, so HR doesn't have to write one from scratch for every role.
  * Returns plain text, ready to drop straight into the job description field.
@@ -134,6 +162,14 @@ against the transcript and delete any you cannot point to an actual moment in it
 The job description below is background only, so you can judge whether what the candidate said makes
 sense for this kind of role (e.g. is the project they described relevant seniority/scope) — it is not
 a rubric to score transcript coverage against.
+
+Another hard rule: the call now asks the candidate's current and expected salary, and asks about
+commute/relocation for the job location. Neither is a performance signal. A high salary expectation,
+a request to negotiate, or any answer about compensation must NEVER lower the score, appear as a
+concern, or push the recommendation toward "hold"/"reject" — that's a fit decision for HR to make
+separately, not something to screen for here. Likewise, saying the commute is difficult or that they'd
+need to relocate is a logistics fact, not a concern about the candidate. Only note either in the
+summary, neutrally, if at all — never in "concerns".
 ${hasCustomQuestions
   ? `\nThe interviewer was specifically required to ask the "Mandatory questions" listed below, on top
 of the usual resume/JD-grounded questions. Find where each one was asked in the transcript and weigh

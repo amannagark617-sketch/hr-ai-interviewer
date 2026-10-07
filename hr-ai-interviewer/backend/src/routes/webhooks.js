@@ -104,6 +104,15 @@ webhooksRouter.post("/hangup", async (req, res) => {
   const latestCandidate = store.getCandidate(call.candidateId) || candidate;
   const callbackRequested = latestCandidate?.callbackStatus === "pending";
 
+  // A transcript with no real "Candidate:" line means the candidate never actually got a chance
+  // to say anything — the agent hung up, the call dropped, or a turn-taking bug ended things
+  // before a real conversation happened. Scoring that transcript (usually just the agent's own
+  // greeting) as a genuine interview reliably produces a confident, meaningless "reject" — the
+  // candidate loses a shot at the role over a failure on our end, not their own performance.
+  const candidateSpoke = (latestCall.transcript || "")
+    .split(/\r?\n/)
+    .some((line) => /^Candidate:\s*\S/.test(line));
+
   let interviewScore = null;
   let recommendation = null;
   let summary = "";
@@ -116,6 +125,15 @@ webhooksRouter.post("/hangup", async (req, res) => {
     // carry the actual outcome of this call instead.
     console.log(
       `[webhooks/hangup] Call ${callId}: candidate asked to be called back at ${latestCandidate.callbackScheduledFor} — skipping scoring.`
+    );
+  } else if (latestCall.transcript?.trim() && !candidateSpoke) {
+    recommendation = "hold";
+    summary =
+      "The call ended before the candidate said anything — likely a dropped connection or a " +
+      "technical issue on our end, not a real interview. Worth another attempt before making a " +
+      "decision.";
+    console.warn(
+      `[webhooks/hangup] Call ${callId} ended with no candidate speech in the transcript — marking "hold" instead of scoring, to avoid rejecting the candidate over our own failure to connect.`
     );
   } else if (latestCall.transcript?.trim()) {
     try {
@@ -130,6 +148,21 @@ webhooksRouter.post("/hangup", async (req, res) => {
       console.error(`[webhooks/hangup] Failed to score interview transcript for call ${callId}:`, err);
     }
   } else {
+    // Distinct from the "candidate never spoke" branch above — this is the WORSE case where we
+    // have literally nothing, not even the agent's own words: transcription capture failed for
+    // the entire call (Gemini's transcription events either never arrived or didn't match the
+    // shape this code expects — see the "NOT been run against live Plivo/Gemini traffic" note at
+    // the top of callBridge.js). Recording still exists via Plivo directly, so the call itself
+    // may well have gone fine; only our transcription/scoring side broke. Leaving recommendation
+    // and summary both null/blank here used to mean this showed up in the UI as a bare
+    // "Completed" card with nothing else — indistinguishable from a call where nothing went
+    // wrong worth mentioning, so HR had no reason to go listen to the recording. Surface it
+    // explicitly instead, same "hold" treatment as the other no-evidence-to-score case above.
+    recommendation = "hold";
+    summary =
+      "We couldn't generate a transcript for this call, so it wasn't auto-scored — this looks " +
+      "like a technical issue with our transcription, not the candidate's fault. Please listen " +
+      "to the recording directly to evaluate this one.";
     console.error(`[webhooks/hangup] Call ${callId} has no transcript after retrying — skipping post-call scoring. Either the call had no audible speech, or the WS bridge never persisted one.`);
   }
 

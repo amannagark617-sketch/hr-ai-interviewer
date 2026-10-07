@@ -16,7 +16,25 @@ export const config = {
     textModel: process.env.GEMINI_TEXT_MODEL || "gemini-3.6-flash",
     // Same deal for the Live API (phone call) model — separate lineage/rotation schedule from
     // the text model above, so it gets its own override.
-    liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-3.1-flash-live-preview",
+    //
+    // Was "models/gemini-3.1-flash-live-preview" — switched after a real interview call showed
+    // the agent talking over the candidate and going dead-silent for a while after being
+    // interrupted. That preview build has open, unresolved reports of exactly this: VAD
+    // self-interrupting mid-greeting and a "turn thrashing" regression where automaticActivityDetection
+    // settings aren't honored (see github.com/google-gemini/gemini-live-api-examples/issues/53 and
+    // github.com/google-gemini/cookbook/issues/1262). gemini-2.5-flash-native-audio-preview-12-2025
+    // is an older-numbered but more established native-audio Live model without those reports, and
+    // its own release notes specifically call out improved barge-in/speech-cutoff handling. If this
+    // turns out worse in practice, revert with one env var — GEMINI_LIVE_MODEL=models/gemini-3.1-flash-live-preview
+    // — no code change needed.
+    liveModel: process.env.GEMINI_LIVE_MODEL || "models/gemini-2.5-flash-native-audio-preview-12-2025",
+    // Tried in order, only when the model above is rejected before the call's setup completes
+    // (a preview model that Google has since retired is the usual cause — the candidate just hears
+    // silence otherwise). Comma-separated; an unknown name just fails fast and the next one is tried.
+    liveFallbackModels: (process.env.GEMINI_LIVE_FALLBACK_MODELS || "models/gemini-3.1-flash-live-preview,models/gemini-2.5-flash-native-audio-latest")
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean),
     // Live API voice — see docs/apps-script or README for the list of available prebuilt voices.
     voiceName: process.env.GEMINI_VOICE_NAME || "Aoede",
     // BCP-47 language code for the Live API's spoken output — this is what actually controls
@@ -42,6 +60,15 @@ export const config = {
   // export doesn't reliably send CORS headers permitting a cross-origin fetch from the app's own
   // domain, so a direct browser fetch can fail even though the URL itself works fine.
   sheetCsvUrl: process.env.SHEET_CSV_URL || "",
+
+  // The AI Assistant tab (see routes/aiAssistant.js) reads two separately published-CSV tabs from
+  // the HR chatbot's own logging Sheet — "Publish to web" only ever exports whichever ONE sheet
+  // is selected at publish time, so each tab needs its own URL rather than sharing sheetCsvUrl
+  // above. Same server-side-fetch reasoning as sheetCsvUrl.
+  aiAssistant: {
+    hrTicketsCsvUrl: process.env.HR_TICKETS_CSV_URL || "",
+    chatHistoryCsvUrl: process.env.CHAT_HISTORY_CSV_URL || "",
+  },
 };
 
 export function assertConfigured(keys) {

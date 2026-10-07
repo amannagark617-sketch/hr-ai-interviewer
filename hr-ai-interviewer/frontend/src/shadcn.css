@@ -1,0 +1,54 @@
+/* Tailwind + shadcn's theme layer, loaded ONLY where shadcn-based components are used (see
+   liquid-glass-button-demo.jsx) rather than from main.jsx — two deliberate choices here, both
+   there to avoid this new toolchain fighting the app's existing hand-built design system
+   (src/styles.css, --bg/--ink/--accent/etc., already used via inline styles on every page):
+
+   1. No Preflight: this imports only Tailwind's theme + utility layers, not
+      "tailwindcss/preflight" — Preflight is a global element reset (button/input/heading
+      margins, borders, font inheritance...) that would silently change how every *existing*
+      plain-HTML element looks across the whole app the moment this file loads anywhere, since
+      CSS resets aren't scoped by where you import the stylesheet from.
+   2. Scoped theme variables: shadcn's own convention defines --background/--primary/--border/
+      --muted/--accent/etc. at :root. This app's styles.css ALREADY defines --border, --muted
+      and --accent at :root for its own (differently-colored) design system — writing shadcn's
+      versions to :root as well would silently override those for every existing page. Instead,
+      the concrete values below are scoped to ".shadcn-scope", and only apply to shadcn/Tailwind
+      components rendered inside an element with that class. */
+@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/utilities" layer(utilities);
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-md: var(--radius);
+}
+
+.shadcn-scope {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --radius: 0.625rem;
+}

@@ -71,4 +71,47 @@ export const api = {
     }
     return res.text();
   },
+
+  // The Documents tab — HR letter templates (offer/experience/increment/internship letters) with
+  // their fields auto-discovered from the .docx itself (see backend/src/services/
+  // documentTemplates.js), filled in, and generated as a matching .docx + .pdf pair.
+  listDocumentTemplates: () => request("/documents/templates"),
+  listDocuments: () => request("/documents"),
+  generateDocument: (templateId, values) =>
+    request("/documents", { method: "POST", body: JSON.stringify({ templateId, values }) }),
+  updateDocument: (id, values) =>
+    request(`/documents/${id}`, { method: "PATCH", body: JSON.stringify({ values }) }),
+  removeDocument: (id) => request(`/documents/${id}`, { method: "DELETE" }),
+  // Plain URLs, not fetch calls — handed straight to an <a href download> / window.open so the
+  // browser handles the actual file download itself.
+  documentDownloadUrl: (id, ext) => `${BASE}/documents/${id}/download.${ext}`,
+
+  // The AI Assistant tab — HR's chatbot logs, from two separately published-CSV tabs of the same
+  // Google Sheet (see backend/src/routes/aiAssistant.js for why they need separate URLs).
+  getHrTicketsCsv: async () => {
+    const res = await fetch(`${BASE}/ai-assistant/tickets-csv`, { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.text();
+  },
+  getChatHistoryCsv: async () => {
+    const res = await fetch(`${BASE}/ai-assistant/chat-history-csv`, { cache: "no-store" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Request failed: ${res.status}`);
+    }
+    return res.text();
+  },
+
+  // The Home page's banner image — a single shared image, not per-user, stored server-side (see
+  // backend/src/routes/branding.js) so everyone who opens the app sees the same one.
+  getBranding: () => request("/branding"),
+  uploadBanner: (file) => {
+    const form = new FormData();
+    form.append("banner", file);
+    return request("/branding/banner", { method: "POST", body: form });
+  },
+  removeBanner: () => request("/branding/banner", { method: "DELETE" }),
 };
